@@ -1,0 +1,109 @@
+fn lower*(text: str): str
+fn upper*(text: str): str
+
+type Capture = struct {
+	s, e: int;
+}
+
+fn rfind(s, p: str, iter_offset: int, tptr: ^void): ([]Capture, int)
+
+// plain search
+fn search*(s, ss: str, init: int = 0): (int, int, bool)
+
+fn find*(text, pattern: str, init: int = 0, plain: bool = false): (int, int, bool) {
+	if plain {
+		return search(text, pattern, init)
+	}
+	captures, _ := rfind(text, pattern, init, typeptr([]Capture))
+	if len(captures) == 0 {
+		return 0, 0, false
+	}
+	c := captures[0]
+	return c.s, c.e, true
+}
+
+fn match*(text, pattern: str, init: int = 0): []str {
+	captures, _ := rfind(text, pattern, init, typeptr([]Capture))
+	if len(captures) == 0 {
+		return []str{}
+	} else if len(captures) == 1 {
+		c := captures[0]
+		return []str{slice(text, c.e, c.e)}
+	}
+	res := make([]str, 0)
+	for i := 1; i < len(captures); i++ {
+		c := captures[i]
+		res = append(res, slice(text, c.s, c.e))
+	}
+	return res
+}
+
+// if entire == false it only returns captures
+fn gmatch*(text, pattern: str, init: int = 0, entire: bool = false): [][]str {
+	res := make([][]str, 0)
+	captures, iter_offset := rfind(text, pattern, init, typeptr([]Capture))
+	for len(captures) > 0 {
+		start := 0
+		if len(captures) > 1 && !entire {
+			start = 1
+		}
+		r := make([]str, 0)
+		for i := start; i < len(captures); i++ {
+			c := captures[i]
+			r = append(r, slice(text, c.s, c.e))
+		}
+		res = append(res, r)
+		captures, iter_offset = rfind(text, pattern, iter_offset, typeptr([]Capture))
+	}
+	return res
+}
+
+fn rep*(s: str, n: int, sep: str = ""): str {
+	if n <= 1 {
+		return s
+	}
+	if len(s) * n > 1<<30 {
+		exit(1, "too much string repeat")
+	}
+	res := s
+	for i := 2; i <= n; i++ {
+		res += sep + s
+	}
+	return res
+}
+
+fn sub*(s: str, i: int, j:int = -1): str {
+	return slice(s, i, j)
+}
+
+fn gsub*(s, pattern, repl: str): str
+
+fn gsub_fn*(text, pattern: str, repl: fn(r: str):str): str {
+	pos := make([]Capture, 0)
+	captures, iter_offset := rfind(text, pattern, 0, typeptr([]Capture))
+	for len(captures) > 0 {
+		pos = append(pos, captures[0])
+		captures, iter_offset = rfind(text, pattern, iter_offset, typeptr([]Capture))
+	}
+
+	var s: int = 0
+	res := ""
+	for i in pos {
+		var p: Capture = pos[i]
+		res += slice(text, s, p.s)
+		res += repl(slice(text, p.s, p.e))
+		s = p.e
+	}
+	res += slice(text, s)
+	return res
+}
+
+fn join*(arr: []str, sep: str = ""): str {
+	res := ""
+	for i := 0; i<len(arr)-1; i++ {
+		res += arr[i] + sep
+	}
+	res += arr[len(arr)-1]
+	return res
+}
+

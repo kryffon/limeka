@@ -56,8 +56,8 @@ f_draw_text :: proc "c" (params, result: ^umka.StackSlot) {
 	context = runtime.default_context()
 	font := (^^RenFont)(umka.GetParam(params, 0).ptrVal)
 	text := cstring(umka.GetParam(params, 1).ptrVal)
-	x := umka.GetParam(params, 2).intVal
-	y := umka.GetParam(params, 3).intVal
+	x := umka.GetParam(params, 2).realVal
+	y := umka.GetParam(params, 3).realVal
 	color := (^RenColor)(umka.GetParam(params, 4).ptrVal)
 
 	r := rencache_draw_text(font^, text, int(x), int(y), color^)
@@ -84,39 +84,12 @@ regs := []FuncReg {
 }
 // odinfmt: enable
 
+renderer_source := #load("modules/renderer.um", cstring)
+
 add_module_renderer :: proc(U: umka.Context) -> bool {
 	for reg in regs {
 		if !umka.AddFunc(U, reg.name, reg.func) do return false
 	}
-	return umka.AddModule(
-		U,
-		"renderer.um",
-		`
-	type Font* = ^void
-
-	fn font_load*(filename: str, size: real): Font
-	fn font_set_tab_width*(font: Font, w: int)
-	fn font_get_width*(font: Font, text: str): int
-	fn font_get_height*(font: Font): int
-	fn font_free*(font: Font)
-	
-	type Color* = struct {
-		r,g,b,a: uint8;
-	}
-
-	type Rect* = struct {
-		x,y,w,h: int;
-	}
-
-	fn show_debug*(show: bool)
-	fn get_size*(): (int, int)
-	fn begin_frame*()
-	fn end_frame*()
-	fn set_clip_rect*(x,y,w,h: int)
-	fn draw_rect*(x,y,w,h: int, color: Color)
-	fn draw_text*(font: Font, text: str, x,y: int, color: Color): int
-		`,
-	)
-
+	return umka.AddModule(U, "renderer.um", renderer_source)
 }
 

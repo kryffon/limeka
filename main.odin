@@ -4,6 +4,8 @@ import "base:runtime"
 import "core:c/libc"
 import "core:dynlib"
 import "core:fmt"
+import "core:math"
+import "core:math/bits"
 import "core:mem"
 import "core:os/os2"
 import "core:path/filepath"
@@ -71,10 +73,6 @@ blue :: #force_inline proc($s: string) -> string {
 
 red :: #force_inline proc($s: string) -> string {
 	return ansi.CSI + ansi.FG_BRIGHT_RED + ansi.SGR + s + ansi.CSI + ansi.RESET + ansi.SGR
-}
-
-yellow :: #force_inline proc($s: string) -> string {
-	return ansi.CSI + ansi.FG_BRIGHT_YELLOW + ansi.SGR + s + ansi.CSI + ansi.RESET + ansi.SGR
 }
 
 run_at_exit :: proc "c" () {
@@ -149,7 +147,7 @@ main :: proc() {
 	ren_init(window)
 
 	argc := i32(len(os2.args))
-	argv := make([dynamic]^u8, argc)
+	argv := make([]^u8, argc)
 	defer delete(argv)
 	for i in 0 ..< argc {
 		argv[i] = (^u8)(strings.unsafe_string_to_cstring(os2.args[i]))
@@ -158,12 +156,12 @@ main :: proc() {
 	when ODIN_DEBUG {
 		for true {
 			fmt.printf(blue("\nUMKA_VERSION: %s\n"), umka.GetVersion())
-			umka_main(argc, raw_data(argv))
+			umka_main(argc, argv)
 			fmt.printf("\nPress ENTER to re-run. ESC to exit\n")
 			if libc.getchar() == 27 do break
 		}
 	} else {
-		umka_main(argc, raw_data(argv))
+		umka_main(argc, argv)
 	}
 
 	ren_free_fonts()
@@ -171,8 +169,8 @@ main :: proc() {
 	sdl.Quit()
 }
 
-umka_main :: proc(argc: i32, argv: [^]^u8) {
-	umka_code: cstring = `import "data/core.um"
+umka_main :: proc(argc: i32, argv: []^u8) {
+	umka_code: cstring = `import "data/core/core.um"
 	fn main() {
 		core::init()
 		core::run()
@@ -181,7 +179,7 @@ umka_main :: proc(argc: i32, argv: [^]^u8) {
 
 	U := umka.Alloc()
 	// odinfmt: disable
-	ok := umka.Init(U, nil, umka_code, 1024 * 1024, nil, argc, argv, true, false, print_compile_warning)
+	ok := umka.Init(U, nil, umka_code, 1024 * 1024, nil, argc, raw_data(argv), false, false, umka.PrintCompileWarning)
 	// odinfmt: enable
 
 	if ok do ok = add_constants(U)
@@ -190,9 +188,9 @@ umka_main :: proc(argc: i32, argv: [^]^u8) {
 
 	if ok {
 		exitcode := umka.Run(U)
-		if exitcode != 0 do print_runtime_error(U, exitcode)
+		if exitcode != 0 do umka.PrintRuntimeError(U)
 	} else {
-		print_compile_error(U)
+		umka.PrintCompileError(U)
 	}
 	umka.Free(U)
 }
@@ -212,15 +210,25 @@ add_constants :: proc(U: umka.Context) -> bool {
 	PLATFORM* = "%s"
 	SCALE* = %f
 	EXEFILE* = "%s"
-	PATHSEP* = "%s"
+	PATHSEP* = char(%d)
 	EXEDIR* = "%s"
+	REAL_MAX* = %e
+	REAL_MIN* = %e
+	INT_MAX* = %d
+	INT_MIN* = %d
 )
 `,
 		sdl.GetPlatform(),
 		scale,
 		exe_filename,
-		filepath.SEPARATOR_STRING,
+		int(filepath.SEPARATOR),
 		exe_dir,
+		// NOTE should i use math.INF_F64 instead of math.F64_MAX ?
+		math.F64_MAX,
+		math.F64_MIN,
+		bits.I64_MAX,
+		bits.I64_MIN,
+		allocator = context.temp_allocator,
 	)
 
 	// fmt.println(code)

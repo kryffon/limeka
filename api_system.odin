@@ -28,31 +28,22 @@ f_search_file_find :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot
 	pattern := cstring(umka.GetParam(params, 0).ptrVal)
 	file := cstring(umka.GetParam(params, 1).ptrVal)
 	matches := make_dynamic_array([dynamic]Match, context.temp_allocator)
-	err := search_file_find_helper(U, pattern, file, &matches)
+	search_file_find_helper(U, pattern, file, &matches)
 
-	Result :: struct {
-		matches: umka.DynArray(Match),
-		err:     ^Error,
-	}
-	res := (^Result)(umka.GetResult(params, result).ptrVal)
-	dtype := umka.GetParamType(params, 2)
+	res := (^umka.DynArray(Match))(umka.GetResult(params, result).ptrVal)
+	dtype := umka.GetResultType(params, result)
 	n := len(matches)
-	umka.MakeDynArray(U, &res.matches, dtype, i32(n))
-	_ = runtime.copy_slice_raw(res.matches.data, raw_data(matches), n, n, size_of(Match))
-
-	if err != nil {
-		msg := strings.unsafe_string_to_cstring(os.error_string(err))
-		res.err = &Error{umka.MakeStr(U, msg)}
-	}
+	umka.MakeDynArray(U, res, dtype, i32(n))
+	_ = runtime.copy_slice_raw(res.data, raw_data(matches), n, n, size_of(Match))
 }
 
 search_file_find_helper :: proc(
 	U: umka.Context,
 	pattern, file: cstring,
 	matches: ^[dynamic]Match,
-) -> os.Error {
+) {
 	f, ferr := os.open(string(file))
-	if ferr != nil do return ferr
+	if ferr != nil do return
 	defer os.close(f)
 
 	r: bufio.Reader
@@ -86,7 +77,7 @@ search_file_find_helper :: proc(
 		}
 		line_no += 1
 	}
-	return nil
+	return
 }
 
 strcasestr :: proc(h: []u8, n: []u8) -> int {
@@ -294,11 +285,13 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 
 f_wait_event :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	n := umka.GetParam(params, 0).realVal
-	b := (^bool)(umka.GetResult(params, result).ptrVal)
-	b^ = bool(sdl.WaitEventTimeout(nil, i32(n * 1000)))
+	res := (^bool)(umka.GetResult(params, result).ptrVal)
+	res^ = bool(sdl.WaitEventTimeout(nil, i32(n * 1000)))
 }
 
 cursor_cache: [sdl.SystemCursor.NUM_SYSTEM_CURSORS]^sdl.Cursor
+
+cursor_opts := [?]cstring{"arrow", "ibeam", "sizeh", "sizev", "hand"}
 
 cursor_enums := [?]sdl.SystemCursor {
 	sdl.SystemCursor.ARROW,
@@ -309,11 +302,14 @@ cursor_enums := [?]sdl.SystemCursor {
 }
 
 f_set_cursor :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	opt := umka.GetParam(params, 0).intVal
-	if opt < 0 || opt >= len(cursor_enums) do opt = 0
+	optstr := cstring(umka.GetParam(params, 0).ptrVal)
+	opt := sdl.SystemCursor.ARROW
+	for name, i in cursor_opts {
+		if name == optstr do opt = cursor_enums[i]
+	}
 	cursor_value := cursor_enums[opt]
 	n: i32 = cast(i32)cursor_value
-	cursor: ^sdl.Cursor = cursor_cache[n]
+	cursor: ^sdl.Cursor = cursor_cache[cursor_value]
 	if (cursor == nil) {
 		cursor = sdl.CreateSystemCursor(cursor_value)
 		cursor_cache[n] = cursor
@@ -326,21 +322,25 @@ f_set_window_title :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot
 	sdl.SetWindowTitle(window, title)
 }
 
-Win :: enum i64 {
+window_opts := [?]cstring{"normal", "maximized", "fullscreen"}
+Win :: enum {
 	WIN_NORMAL,
 	WIN_MAXIMIZED,
 	WIN_FULLSCREEN,
 }
 
 f_set_window_mode :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	n := umka.GetParam(params, 0).intVal
-	if n < 0 || n >= len(Win) do n = 0
+	nstr := cstring(umka.GetParam(params, 0).ptrVal)
+	n := Win.WIN_NORMAL
+	for name, i in cursor_opts {
+		if name == nstr do n = Win(i)
+	}
 	sdl.SetWindowFullscreen(
 		window,
-		n == i64(Win.WIN_FULLSCREEN) ? sdl.WINDOW_FULLSCREEN_DESKTOP : sdl.WindowFlags{},
+		n == .WIN_FULLSCREEN ? sdl.WINDOW_FULLSCREEN_DESKTOP : sdl.WindowFlags{},
 	)
-	if (n == i64(Win.WIN_NORMAL)) {sdl.RestoreWindow(window)}
-	if (n == i64(Win.WIN_MAXIMIZED)) {sdl.MaximizeWindow(window)}
+	if (n == .WIN_NORMAL) {sdl.RestoreWindow(window)}
+	if (n == .WIN_MAXIMIZED) {sdl.MaximizeWindow(window)}
 }
 
 
@@ -382,7 +382,8 @@ f_show_confirm_dialog :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackS
 		sdl.ShowMessageBox(&data, &buttonid)
 		b = buttonid == 1
 	}
-	umka.GetResult(params, result).ptrVal = &b
+	res := (^bool)(umka.GetResult(params, result).ptrVal)
+	res^ = b
 }
 
 Error :: struct {
@@ -391,17 +392,10 @@ Error :: struct {
 
 f_chdir :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	context = runtime.default_context()
-	U := umka.GetInstance(result)
 	path := cstring(umka.GetParam(params, 0).ptrVal)
 	err := os.set_current_directory(string(path))
-	// fmt.printf("CHDIR_ODIN: %v\n", err)
-	if err != nil {
-		msg := strings.unsafe_string_to_cstring(os.error_string(err))
-		e := (^Error)(umka.GetResult(params, result).ptrVal)
-		e.msg = umka.MakeStr(U, msg)
-	} else {
-		umka.GetResult(params, result).ptrVal = nil
-	}
+	res := (^bool)(umka.GetResult(params, result).ptrVal)
+	res^ = err != nil
 }
 
 FileInfo :: struct {
@@ -420,32 +414,21 @@ f_list_dir :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	filelist := make_dynamic_array([dynamic]FileInfo, context.temp_allocator)
 	defer delete(filelist)
 
-	fmt.println("PATH", path)
-	err := list_dir_helper(U, path, &filelist)
-
-	Result :: struct {
-		filelist: umka.DynArray(FileInfo),
-		err:      ^Error,
-	}
-	res := (^Result)(umka.GetResult(params, result).ptrVal)
-	dtype := umka.GetParamType(params, 1)
+	list_dir_helper(U, path, &filelist)
+	res := (^umka.DynArray(FileInfo))(umka.GetResult(params, result).ptrVal)
+	dtype := umka.GetResultType(params, result)
 	n := len(filelist)
-	umka.MakeDynArray(U, &res.filelist, dtype, i32(n))
-	_ = runtime.copy_slice_raw(res.filelist.data, raw_data(filelist), n, n, size_of(FileInfo))
-
-	if err != nil {
-		msg := strings.unsafe_string_to_cstring(os.error_string(err))
-		res.err = &Error{umka.MakeStr(U, msg)}
-	}
+	umka.MakeDynArray(U, res, dtype, i32(n))
+	_ = runtime.copy_slice_raw(res.data, raw_data(filelist), n, n, size_of(FileInfo))
 }
 
-list_dir_helper :: proc(U: umka.Context, path: cstring, filelist: ^[dynamic]FileInfo) -> os.Error {
+list_dir_helper :: proc(U: umka.Context, path: cstring, filelist: ^[dynamic]FileInfo) {
 	handle, err1 := os.open(string(path))
 	defer os.close(handle)
-	if err1 != nil do return err1
+	if err1 != nil do return
 
 	entries, err2 := os.read_dir(handle, -1, context.temp_allocator)
-	if err2 != nil do return err2
+	if err2 != nil do return
 
 	for e, _ in entries {
 		if e.name == "." || e.name == ".." {
@@ -462,7 +445,6 @@ list_dir_helper :: proc(U: umka.Context, path: cstring, filelist: ^[dynamic]File
 			},
 		)
 	}
-	return nil
 }
 
 
@@ -472,13 +454,13 @@ f_absolute_path :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	path := cstring(umka.GetParam(params, 0).ptrVal)
 	apath, ok := filepath.abs(string(path), context.temp_allocator)
-	res: struct {
+	Result :: struct {
 		apath: umka.Str,
 		ok:    bool,
 	}
+	res := (^Result)(umka.GetResult(params, result).ptrVal)
 	res.apath = umka.MakeStr(U, strings.unsafe_string_to_cstring(apath))
 	res.ok = ok
-	umka.GetResult(params, result).ptrVal = &res
 }
 
 f_get_file_info :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
@@ -487,17 +469,16 @@ f_get_file_info :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	path := cstring(umka.GetParam(params, 0).ptrVal)
 
-	res: struct {
-		fi:  FileInfo,
-		err: ^Error,
+	Result :: struct {
+		fi: FileInfo,
+		ok: bool,
 	}
+	res := (^Result)(umka.GetResult(params, result).ptrVal)
 
 	fi, err := os.stat(string(path), context.temp_allocator)
 	defer os.file_info_delete(fi, context.temp_allocator)
 	if err != nil {
-		msg := strings.unsafe_string_to_cstring(os.error_string(err))
-		res.err = &Error{umka.MakeStr(U, msg)}
-		umka.GetResult(params, result).ptrVal = &res
+		res.ok = false
 		return
 	}
 
@@ -505,7 +486,7 @@ f_get_file_info :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	res.fi.modified = time.time_to_unix(fi.modification_time)
 	res.fi.size = fi.size
 	res.fi.is_dir = fi.is_dir
-	umka.GetResult(params, result).ptrVal = &res
+	res.ok = true
 }
 
 f_get_clipboard :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
@@ -583,10 +564,11 @@ f_fuzzy_match :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 		i += 1
 	}
 
-	res: struct {
+	Result :: struct {
 		i:     i64,
 		found: bool,
 	}
+	res := (^Result)(umka.GetResult(params, result).ptrVal)
 	if j < pattern_len {
 		res.found = false
 	} else {
@@ -594,7 +576,14 @@ f_fuzzy_match :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 		res.i = i64(score - remaining)
 		res.found = true
 	}
-	umka.GetResult(params, result).ptrVal = &res
+}
+
+f_lerp_uint8 :: proc "c" (params, result: ^umka.StackSlot) {
+	a := (^u8)(umka.GetParam(params, 0).ptrVal)
+	b := (^u8)(umka.GetParam(params, 1).ptrVal)
+	t := umka.GetParam(params, 2).realVal
+	c := (^u8)(umka.GetResult(params, result).ptrVal)
+	c^ = u8(f64(a^) + f64(b^ - a^) * t)
 }
 
 // odinfmt: disable
@@ -608,7 +597,7 @@ regs := [?]FuncReg {
   { "window_has_focus",    f_window_has_focus    },
   { "show_confirm_dialog", f_show_confirm_dialog },
   { "chdir",               f_chdir               },
-  { "r_list_dir",          f_list_dir            },
+  { "list_dir",            f_list_dir            },
   { "absolute_path",       f_absolute_path       },
   { "get_file_info",       f_get_file_info       },
   { "get_clipboard",       f_get_clipboard       },
@@ -617,77 +606,17 @@ regs := [?]FuncReg {
   { "sleep",               f_sleep               },
   { "exec",                f_exec                },
   { "fuzzy_match",         f_fuzzy_match         },
-  { "r_search_file_find",  f_search_file_find    },
+  { "search_file_find",    f_search_file_find    },
+  { "lerp_uint8",          f_lerp_uint8          },
 }
 // odinfmt: enable
+
+system_source := #load("modules/system.um", cstring)
 
 add_module_system :: proc(U: umka.Context) -> bool {
 	for reg in regs {
 		if !umka.AddFunc(U, reg.name, reg.func) do return false
 	}
-	return umka.AddModule(
-		U,
-		"system.um",
-		`
-	type Event* = struct {
-		etype: str;
-		a,b,c,d: real;
-	}
-
-	type FileInfo* = struct {
-		name: str;
-		modified: int;
-		size: int;
-		is_dir: bool;
-	}
-
-	type Match* = struct {
-		text: str;
-		line, col: int;
-	}
-
-	type CursorType* = enum {
-		ARROW; IBEAM; SIZEH; SIZEV; HAND;
-	}
-
-	type WindowMode* = enum {
-		NORMAL; MAXIMISED; FULLSCREEN;
-	}
-
-	type Error* = struct {
-		msg: str;
-	}
-	
-	fn poll_event*(): []Event
-	fn wait_event*(wt: real): bool
-	fn set_cursor*(cursor: CursorType)
-	fn set_window_title*(title: str)
-	fn set_window_mode*(mode: WindowMode)
-	fn window_has_focus*(): bool
-	fn show_confirm_dialog*(title, msg: str): bool
-	fn chdir*(path: str): ^Error
-	
-	fn r_list_dir(path: str, f: []FileInfo): ([]FileInfo, ^Error)
-	fn list_dir*(path: str): ([]FileInfo, ^Error) {
-		var f: []FileInfo
-		return r_list_dir(path, f)
-	}
-
-	fn absolute_path*(path: str): (str, bool)
-	fn get_file_info*(path: str): (FileInfo, ^Error)
-	fn get_clipboard*(): str
-	fn set_clipboard*(text: str)
-	fn get_time*(): real
-	fn sleep*(t: real)
-	fn exec*(cmd: str)
-	fn fuzzy_match*(string, pattern: str): (int, bool)
-
-	fn r_search_file_find(patter, file: str, m: []Match): ([]Match, ^Error)
-	fn search_file_find*(pattern, file: str): ([]Match, ^Error) {
-		var m: []Match
-		return r_search_file_find(pattern, file, m)
-	}
-		`,
-	)
+	return umka.AddModule(U, "system.um", system_source)
 }
 

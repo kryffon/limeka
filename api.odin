@@ -10,6 +10,6 @@ FuncReg :: struct {
 }
 
 api_load_libs :: proc(U: umka.Context) -> bool {
-	return add_module_system(U) && add_module_renderer(U)
+	return add_module_system(U) && add_module_renderer(U) && add_module_strings(U)
 }
 

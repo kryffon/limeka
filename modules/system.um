@@ -1,0 +1,40 @@
+type Event* = struct {
+	etype: str;
+	a,b,c,d: real;
+}
+
+fn poll_event*(): []Event
+fn wait_event*(wt: real): bool
+fn set_cursor*(cursor: str)
+fn set_window_title*(title: str)
+fn set_window_mode*(mode: str)
+fn window_has_focus*(): bool
+fn show_confirm_dialog*(title, msg: str): bool
+fn chdir*(path: str): bool
+
+type FileInfo* = struct {
+	// name does not contain fullpath
+	name: str;
+	modified: int;
+	size: int;
+	is_dir: bool;
+}
+
+fn list_dir*(path: str): []FileInfo
+fn absolute_path*(path: str): (str, bool)
+fn get_file_info*(path: str): (FileInfo, bool)
+fn get_clipboard*(): str
+fn set_clipboard*(text: str)
+fn get_time*(): real
+fn sleep*(t: real)
+fn exec*(cmd: str)
+fn fuzzy_match*(string, pattern: str): (int, bool)
+
+type Match* = struct {
+	text: str;
+	line, col: int;
+}
+
+fn search_file_find*(pattern, file: str): []Match
+fn lerp_uint8*(a, b: uint8, t: real): uint8
+

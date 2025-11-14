@@ -83,36 +83,36 @@ Context :: distinct rawptr
 @(default_calling_convention = "c", link_prefix = "umka")
 foreign lib {
 	Alloc :: proc() -> Context ---
-	Init :: proc(ctx: Context, fileName: cstring, sourceString: cstring, stackSize: c.int, reserved: rawptr, argc: c.int, argv: [^]^c.char, fileSystemEnabled: c.bool, implLibsEnabled: c.bool, warningCallback: WarningCallback) -> c.bool ---
-	Compile :: proc(ctx: Context) -> c.bool ---
-	Run :: proc(ctx: Context) -> c.int ---
-	Call :: proc(ctx: Context, fn: ^FuncContext) -> c.int ---
-	Free :: proc(ctx: Context) ---
-	GetError :: proc(ctx: Context) -> ^Error ---
-	Alive :: proc(ctx: Context) -> c.bool ---
-	Asm :: proc(ctx: Context) -> [^]c.char ---
-	AddModule :: proc(ctx: Context, fileName: cstring, sourceString: cstring) -> c.bool ---
-	AddFunc :: proc(ctx: Context, name: cstring, func: ExternFunc) -> c.bool ---
-	GetFunc :: proc(ctx: Context, moduleName: cstring, fnName: cstring, fn: ^FuncContext) -> c.bool ---
-	GetCallStack :: proc(ctx: Context, depth: c.int, nameSize: c.int, offset: ^c.int, fileName: [^]c.char, fnName: [^]c.char, line: ^c.int) -> c.bool ---
-	SetHook :: proc(ctx: Context, event: HookEvent, hook: HookFunc) ---
-	AllocData :: proc(ctx: Context, size: c.int, onFree: ExternFunc) -> rawptr ---
-	IncRef :: proc(ctx: Context, ptr: rawptr) ---
-	DecRef :: proc(ctx: Context, ptr: rawptr) ---
-	GetMapItem :: proc(ctx: Context, collection: ^Map, key: StackSlot) -> rawptr ---
-	MakeStr :: proc(ctx: Context, str: cstring) -> [^]c.char ---
+	Init :: proc(U: Context, fileName: cstring, sourceString: cstring, stackSize: c.int, reserved: rawptr, argc: c.int, argv: [^]^c.char, fileSystemEnabled: c.bool, implLibsEnabled: c.bool, warningCallback: WarningCallback) -> c.bool ---
+	Compile :: proc(U: Context) -> c.bool ---
+	Run :: proc(U: Context) -> c.int ---
+	Call :: proc(U: Context, fn: ^FuncContext) -> c.int ---
+	Free :: proc(U: Context) ---
+	GetError :: proc(U: Context) -> ^Error ---
+	Alive :: proc(U: Context) -> c.bool ---
+	Asm :: proc(U: Context) -> [^]c.char ---
+	AddModule :: proc(U: Context, fileName: cstring, sourceString: cstring) -> c.bool ---
+	AddFunc :: proc(U: Context, name: cstring, func: ExternFunc) -> c.bool ---
+	GetFunc :: proc(U: Context, moduleName: cstring, fnName: cstring, fn: ^FuncContext) -> c.bool ---
+	GetCallStack :: proc(U: Context, depth: c.int, nameSize: c.int, offset: ^c.int, fileName: [^]c.char, fnName: [^]c.char, line: ^c.int) -> c.bool ---
+	SetHook :: proc(U: Context, event: HookEvent, hook: HookFunc) ---
+	AllocData :: proc(U: Context, size: c.int, onFree: ExternFunc) -> rawptr ---
+	IncRef :: proc(U: Context, ptr: rawptr) ---
+	DecRef :: proc(U: Context, ptr: rawptr) ---
+	GetMapItem :: proc(U: Context, collection: ^Map, key: StackSlot) -> rawptr ---
+	MakeStr :: proc(U: Context, str: cstring) -> [^]c.char ---
 	GetStrLen :: proc(str: cstring) -> c.int ---
-	MakeDynArray :: proc(ctx: Context, array: rawptr, type: ^Type, len: c.int) ---
+	MakeDynArray :: proc(U: Context, array: rawptr, type: ^Type, len: c.int) ---
 	GetDynArrayLen :: proc(array: rawptr) -> c.int ---
 	GetVersion :: proc() -> cstring ---
-	GetMemUsage :: proc(ctx: Context) -> i64 ---
-	MakeFuncContext :: proc(ctx: Context, closureType: ^Type, entryOffset: c.int, fn: ^FuncContext) ---
+	GetMemUsage :: proc(U: Context) -> i64 ---
+	MakeFuncContext :: proc(U: Context, closureType: ^Type, entryOffset: c.int, fn: ^FuncContext) ---
 	GetParam :: proc(params: ^StackSlot, index: c.int) -> ^StackSlot ---
 	GetUpvalue :: proc(params: ^StackSlot) -> ^Any ---
 	GetResult :: proc(params: ^StackSlot, result: ^StackSlot) -> ^StackSlot ---
-	GetMetadata :: proc(ctx: Context) -> rawptr ---
-	SetMetadata :: proc(ctx: Context, metadata: rawptr) ---
-	MakeStruct :: proc(ctx: Context, type: ^Type) -> rawptr ---
+	GetMetadata :: proc(U: Context) -> rawptr ---
+	SetMetadata :: proc(U: Context, metadata: rawptr) ---
+	MakeStruct :: proc(U: Context, type: ^Type) -> rawptr ---
 	GetBaseType :: proc(type: ^Type) -> ^Type ---
 	GetParamType :: proc(params: ^StackSlot, index: c.int) -> ^Type ---
 	GetResultType :: proc(params: ^StackSlot, result: ^StackSlot) -> ^Type ---
@@ -181,5 +181,18 @@ SetFuncResult :: #force_inline proc(fn: ^FuncContext, result: $T) {
 GetFuncResult :: #force_inline proc(fn: ^FuncContext, $T: typeid) -> T {
 	result := GetResult(fn.params, fn.result)
 	return GetStackSlotValue(result, T)
+}
+
+// only works if it is single return of dyn array type
+FillResultDynArray :: #force_inline proc(
+	U: Context,
+	params, result: ^StackSlot,
+	array: ^$T/[dynamic]$E,
+) {
+	res := (^DynArray(E))(GetResult(params, result).ptrVal)
+	rtype := GetResultType(params, result)
+	n := len(array)
+	MakeDynArray(U, res, rtype, i32(n))
+	_ = runtime.copy_slice_raw(res.data, raw_data(array^), n, n, size_of(E))
 }
 
