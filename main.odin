@@ -170,7 +170,7 @@ main :: proc() {
 }
 
 umka_main :: proc(argc: i32, argv: []^u8) {
-	umka_code: cstring = `import "data/core/core.um"
+	umka_code: cstring = `import "core.um"
 	fn main() {
 		core::init()
 		core::run()
@@ -184,6 +184,7 @@ umka_main :: proc(argc: i32, argv: []^u8) {
 
 	if ok do ok = add_constants(U)
 	if ok do ok = api_load_libs(U)
+	if ok do ok = api_add_lite_modules(U)
 	if ok do ok = umka.Compile(U)
 
 	if ok {

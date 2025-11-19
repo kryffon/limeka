@@ -1,0 +1,131 @@
+import (
+	"env.um"
+	"common.um"
+	"config.um"
+	"strings.um"
+	"doc.um"
+)
+
+fn is_non_word(c: char): bool {
+	return strings::find(config::non_word_chars, c, 0, true).item2
+}
+
+fn previous_char*(doc: ^doc::Doc, line, col: int): (int, int) {
+	for true {
+		line, col = doc.position_offset(line, col, doc::noop, -1)
+		if common::is_utf8_cont(doc.get_char(line, col)) {
+			break
+		}
+	}
+	return line, col
+}
+
+fn start_of_line*(doc: ^doc::Doc, line, col: int): (int, int) {
+	return line, 0
+}
+
+fn end_of_line*(doc: ^doc::Doc, line, col: int): (int, int) {
+	return line, env::INT_MAX
+}
+
+fn start_of_doc*(doc: ^doc::Doc, line, col: int): (int, int) {
+	return 0, 0
+}
+
+fn end_of_doc*(doc: ^doc::Doc, line, col: int): (int, int) {
+	return len(doc.lines), len(doc.lines[len(doc.lines)-1])
+}
+
+fn next_char*(doc: ^doc::Doc, line, col: int): (int, int) {
+	for true {
+		line, col = doc.position_offset(line, col, doc::noop, 1)
+		if common::is_utf8_cont(doc.get_char(line, col)) {
+			break
+		}
+	}
+	return line, col
+}
+
+fn start_of_word*(doc: ^doc::Doc, line, col: int): (int, int) {
+	for true {
+		line2, col2 := doc.position_offset(line, col, doc::noop, -1)
+		ch := doc.get_char(line2, col2)
+		if is_non_word(ch) || (line == line2 && col == col2) {
+			break
+		}
+		line, col = line2, col2
+	}
+	return line, col
+}
+
+fn end_of_word*(doc: ^doc::Doc, line, col: int): (int, int) {
+	for true {
+		line2, col2 := doc.position_offset(line, col, doc::noop, 1)
+		ch := doc.get_char(line2, col2)
+		if is_non_word(ch) || (line == line2 && col == col2) {
+			break
+		}
+		line, col = line2, col2
+	}
+	return line, col
+}
+
+fn previous_word_start*(doc: ^doc::Doc, line, col: int): (int, int) {
+	var prev: int = -1
+	for line > 0 || col > 0 {
+		l, c := doc.position_offset(line, col, doc::noop, -1)
+		ch := doc.get_char(l, c)
+		if (prev != -1 && prev != int(ch)) || (!is_non_word(ch)) {
+			break
+		}
+		prev, line, col = int(ch), l, c
+	}
+	return start_of_word(doc, line, col)
+}
+
+fn next_word_end*(doc: ^doc::Doc, line, col: int): (int, int) {
+	var prev: int = -1
+	end_line, end_col := end_of_doc(doc, line, col)
+	for line < end_line || col < end_col {
+		ch := doc.get_char(line, col)
+		if (prev != -1 && prev != int(ch)) || (!is_non_word(ch)) {
+			break
+		}
+		line, col = doc.position_offset(line, col, doc::noop, 1)
+		prev = int(ch)
+	}
+	return end_of_word(doc, line, col)
+}
+
+
+fn previous_block_start*(doc: ^doc::Doc, line, col: int): (int, int) {
+	for true {
+		line = line -1
+		if line <= 0 {
+			break
+		}
+		ok1 := strings::find(doc.lines[line-1], "^%s*$").item2
+		ok2 := strings::find(doc.lines[line], "^%s*$").item2
+		if ok1 && !ok2 {
+			s := strings::find(doc.lines[line], "%S").item0
+			return line, s
+		}
+	}
+	return 0, 0
+}
+
+fn next_block_start*(doc: ^doc::Doc, line, col: int): (int, int) {
+	for true {
+		if line >= len(doc.lines) {
+			break
+		}
+		ok1 := strings::find(doc.lines[line+1], "^%s*$").item2
+		ok2 := strings::find(doc.lines[line], "^%s*$").item2
+		if ok1 && !ok2 {
+			return line+1, len(doc.lines[line+1])-1
+		}
+		line = line + 1
+	}
+	return len(doc.lines)-1, 0
+}
+

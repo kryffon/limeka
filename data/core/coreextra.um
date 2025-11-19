@@ -1,0 +1,82 @@
+// NOTE this file is here to avoid cyclic imports
+// no imports should be here which is not a leaf module
+import (
+	"system.um"
+	"renderer.um"
+	"style.um"
+	"config.um"
+)
+
+type (
+	LogItem* = struct {
+		time: real;
+		info, text, at: str;
+	}
+	
+	Suggestion* = struct {
+		text, info: str;
+	}
+
+	SubmitFunc* = fn(text: str, item: ^Suggestion)
+	SuggestFunc* = fn(text: str): []str
+	CancelFunc* = fn(a: bool)
+)
+
+var (
+	redraw*: bool = false
+	threads*: []fiber
+	log_items*: []LogItem
+	active_view*: any
+	last_active_view*: any
+	deffered_draws*: []fn()
+	docs*: []any
+	project_files*: []any
+
+	// NOTE this is awful
+	count_views_referencing_doc*: fn(a: str): int
+	command_view_enter*: fn(text: str, submit: SubmitFunc, suggest: SuggestFunc, cancel: CancelFunc)
+	push_clip_rect*: fn(x, y, w, h: real)
+	pop_clip_rect*: fn()
+)
+
+fn add_thread*(f: fn()) {
+	threads = append(threads, make(fiber, f))
+}
+
+fn core_log(icon: str, icon_color: renderer::Color, text: str): LogItem {
+	if len(icon) != 0 {
+		// status_view:show_message(icon, icon_color, text)
+		printf("CORE_LOG %v\n", text)
+	}
+
+	// info := debug.getinfo(2, "Sl")
+	// at := string.format("%s:%d", info.short_src, info.currentline)
+	// item := { text = text, time = os.time(), at = at }
+	// NOTE get some stack trace
+	item := LogItem{time: system::get_time(), text: text}
+	log_items = append(log_items, item)
+	if len(log_items) > config::max_log_items {
+		delete(log_items, 0)
+	}
+	return item
+}
+
+
+fn log_info*(text: str): LogItem {
+	return core_log("i", style::text, text)
+}
+
+fn log_quiet*(text: str): LogItem {
+	return core_log("", {}, text)
+}
+
+fn set_active_view*(view: any) {
+	if selfhasptr(view) && selfptr(view) != selfptr(active_view) {
+		last_active_view = active_view
+		active_view = view
+	}
+}
+
+fn defer_draw*(f: fn()) {
+	deffered_draws = append(deffered_draws, f)
+}

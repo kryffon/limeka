@@ -1,0 +1,72 @@
+import (
+	"env.um"
+	"common.um"
+	"renderer.um"
+)
+
+var (
+	padding*: common::Vec2
+	divider_size*: real
+	scrollbar_size*: real
+	caret_width*: real
+	tab_width*: real
+
+	font*: renderer::Font
+	big_font*: renderer::Font
+	icon_font*: renderer::Font
+	code_font*: renderer::Font
+
+	background*: renderer::Color
+	background2*: renderer::Color
+	background3*: renderer::Color
+	text*: renderer::Color
+	caret*: renderer::Color
+	accent*: renderer::Color
+	dim*: renderer::Color
+	divider*: renderer::Color
+	selection*: renderer::Color
+	line_number*: renderer::Color
+	line_number2*: renderer::Color
+	line_highlight*: renderer::Color
+	scrollbar*: renderer::Color
+	scrollbar2*: renderer::Color
+
+	syntax*: map[str]renderer::Color
+)
+
+fn load_default_style*() {
+	padding = { x : round(14.0 * env::SCALE), y : round(7.0 * env::SCALE) }
+	divider_size = round(1.0 * env::SCALE)
+	scrollbar_size = round(4.0 * env::SCALE)
+	caret_width = round(2.0 * env::SCALE)
+	tab_width = round(170.0 * env::SCALE)
+	font = renderer::font_load(env::EXEDIR + "/data/fonts/font.ttf", 14.0 * env::SCALE)
+	big_font = renderer::font_load(env::EXEDIR + "/data/fonts/font.ttf", 34.0 * env::SCALE)
+	icon_font = renderer::font_load(env::EXEDIR + "/data/fonts/icons.ttf", 14.0 * env::SCALE)
+	code_font = renderer::font_load(env::EXEDIR + "/data/fonts/monospace.ttf", 13.5 * env::SCALE)
+	background =  common::color("#2e2e32")
+	background2 =  common::color("#252529")
+	background3 =  common::color("#252529")
+	text =  common::color("#97979c")
+	caret =  common::color("#93DDFA")
+	accent =  common::color("#e1e1e6")
+	dim =  common::color("#525257")
+	divider =  common::color("#202024")
+	selection =  common::color("#48484f")
+	line_number =  common::color("#525259")
+	line_number2 =  common::color("#83838f")
+	line_highlight =  common::color("#343438")
+	scrollbar =  common::color("#414146")
+	scrollbar2 =  common::color("#4b4b52")
+
+	syntax["normal"]=  common::color("#e1e1e6")
+	syntax["symbol"] =  common::color("#e1e1e6")
+	syntax["comment"] =  common::color("#676b6f")
+	syntax["keyword"] =  common::color("#E58AC9")
+	syntax["keyword2"] =  common::color("#F77483")
+	syntax["number"] =  common::color("#FFA94D")
+	syntax["literal"] =  common::color("#FFA94D")
+	syntax["string"] =  common::color("#f7c95c")
+	syntax["operator"] =  common::color("#93DDFA")
+	syntax["function"] =  common::color("#93DDFA")
+}

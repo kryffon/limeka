@@ -1,0 +1,50 @@
+import (
+	"strings.um"
+	"doc.um"
+)
+
+type SearchOption* = struct {
+	no_case: bool;
+	pattern: bool;
+	wrap: bool;
+}
+
+fn pattern_lower(s: str): str {
+	if s[0] == '%' {
+		return s
+	}
+	return strings::lower(s)
+}
+
+fn init_args(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption): (int, int, str) {
+	line, col = doc.sanitize_position(line, col)
+	if opt.no_case {
+		if opt.pattern {
+			text = strings::gsub_fn(text, "%%?.", pattern_lower)
+		} else {
+			text = strings::lower(text)
+		}
+	}
+	return line, col, text
+}
+
+fn find*(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption) : (int, int, int, int) {
+	line, col, text = init_args(doc, line, col, text, opt)
+
+	for l := line; l < len(doc.lines); l++ {
+		line_text := doc.lines[l]
+		if opt.no_case {
+			line_text = strings::lower(line_text)
+		}
+		s, e, ok := strings::find(line_text, text, col, !opt.pattern)
+		if ok {
+			return l, s, l, e
+		}
+		col = 1
+	}
+	if opt.wrap {
+		opt2 := SearchOption{no_case: opt.no_case, pattern: opt.pattern}
+		return find(doc, 0, 0, text, opt2)
+	}
+	return -1,-1,-1,-1
+}

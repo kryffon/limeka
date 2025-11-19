@@ -1,0 +1,102 @@
+import (
+	"strings.um"
+	"syntax.um"
+)
+
+const NULL_STATE* = -1
+
+type Token* = struct {
+	typ, text: str;
+}
+
+fn push_token(res: ^[]Token, typ: str, text: str) {
+	if len(res^) != 0 {
+		prev := &res[len(res^)-1]
+		_, _, ok := strings::find(prev.text, "^%s*$")
+		if prev.typ == typ || ok {
+			prev.typ = typ
+			prev.text += text
+			return
+		}
+	}
+	res^ = append(res^, Token{typ, text})
+}
+
+fn is_escaped(text: str, idx: int, esc: str): bool {
+	byte := esc[0]
+	count := 0
+	// NOTE i := idx-1 or idx-2
+	for i := idx-1; i>=0; i-- {
+		if text[i] != byte {
+			break
+		}
+		count += 1
+	}
+	return count % 2 == 1
+}
+
+fn find_non_escaped(text: str, p: ^syntax::Pattern, offset: int): (int, int, bool) {
+	if len(p.pattern) < 2 {
+		return 0, 0, false
+	}
+	third := len(p.pattern) > 2
+	for true {
+		s, e, ok := strings::find(text, p.pattern[1], offset)
+		if !ok { break }
+		if third && is_escaped(text, s, p.pattern[2]) {
+			offset = e
+		} else {
+			return s, e, true
+		}
+	}
+	return 0, 0, false
+}
+
+fn tokenize*(syn: ^syntax::Syntax, text: str, state: int = NULL_STATE): ([]Token, int) {
+	if syn == null  || len(syn.patterns) == 0 {
+		return []Token{{typ: "normal", text: text}}, NULL_STATE
+	}
+
+	res := make([]Token, 0)
+	i := 0
+	for i < len(text) {
+		if state != NULL_STATE {
+			p := syn.patterns[state]
+			_, e, ok := find_non_escaped(text, &p, i)
+			if ok {
+				push_token(&res, p.typ, slice(text, i, e))
+				state = NULL_STATE
+				i = e
+			} else {
+				push_token(&res, p.typ, slice(text, i))
+				break
+			}
+		}
+
+		matched := false
+		for n, p^ in syn.patterns {
+			s,e,ok := strings::find(text, "^" + p.pattern[0], i)
+			if ok {
+				t := slice(text, s, e)
+				typ := p.typ
+				if validkey(syn.symbols, t) {
+					typ = syn.symbols[t]
+				} 
+				push_token(&res, typ, t)
+				if len(p.pattern) > 1 {
+					state = n
+				}
+				i = e
+				matched = true
+				break
+			}
+		}
+
+		if !matched {
+			push_token(&res, "normal", slice(text, i, i+1))
+			i = i+1
+		}
+	}
+	return res, state	
+}
+

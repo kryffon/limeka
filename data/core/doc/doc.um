@@ -1,0 +1,534 @@
+import (
+	"common.um"
+	"config.um"
+	"syntax.um"
+	"strings.um"
+	"std.um"
+	"tokenizer.um"
+	"cex.um"
+	"system.um"
+)
+
+type Selection* = struct {
+	a: struct{ line, col: int;};
+	b: struct{ line, col: int;};
+}
+
+type StackItem* = struct {
+	typ: str;
+	time: real;
+	text: str;
+	selection: Selection;
+	swap: bool;
+}
+
+type Stack* = struct {
+	idx: int;
+	data: map[int]StackItem;	
+}
+
+type LineTokens* = struct {
+	valid: bool;
+	init_state, state: int;
+	text: str;
+	tokens: []tokenizer::Token;
+}
+
+type (
+	Highlighter* = struct {
+		doc: ^Doc;
+		lines: []LineTokens;
+		first_invalid_line: int;
+		max_wanted_line: int;
+		quit: bool;
+	}
+
+	Doc* = struct {
+		singleline: bool;
+		lines: []str;
+		crlf: bool;
+		selection: Selection;
+		undo_stack: Stack;
+		redo_stack: Stack;
+		clean_change_id: int;
+		highlighter: ^Highlighter;
+		syntax: ^syntax::Syntax;
+		filename: str;
+	}
+)
+
+// highlighter
+
+fn (self: ^Highlighter) reset*() {
+	self.lines = {}
+	self.first_invalid_line = 0
+	self.max_wanted_line = -1
+}
+
+fn (self: ^Highlighter) tokenize_line*(idx: int, state: int): LineTokens {
+	var res: LineTokens
+	res.init_state = state
+	res.text = self.doc.lines[idx]
+	res.tokens, res.state = tokenizer::tokenize(self.doc.syntax, res.text, state)
+	res.valid = true
+	return res
+}
+
+// NOTE should it be weak ref?
+fn highlighter_thread*(self: ^Highlighter) {
+	for true {
+		if self.quit { break }
+		if self.first_invalid_line > self.max_wanted_line {
+			self.max_wanted_line = 0
+			resume()
+		} else {
+			mx := common::imin(self.first_invalid_line+40, self.max_wanted_line)
+			for i:=self.first_invalid_line; i<=mx; i++ {
+				state := -1
+				if i > 0 && self.lines[i-1].valid {
+					state = self.lines[i-1].state
+				}
+				line_tokens := self.lines[i]
+				if !(line_tokens.valid && line_tokens.init_state == state) {
+					self.lines[i] = self.tokenize_line(i, state)
+				}
+			}
+			self.first_invalid_line = mx + 1
+			cex::redraw = true
+			resume()
+		}
+	}
+}
+
+fn get_new_highlighter*(doc: ^Doc): ^Highlighter {
+	self := new(Highlighter)
+	self.doc = doc
+	self.reset()
+	cex::add_thread(fn() |self| { highlighter_thread(self) })
+	return self
+}
+
+fn (self: ^Highlighter) invalidate*(idx: int) {
+	self.first_invalid_line = common::imin(self.first_invalid_line, idx)
+	self.max_wanted_line = common::imin(self.max_wanted_line, len(self.doc.lines)-1)
+}
+
+
+fn (self: ^Highlighter) get_line*(idx: int): LineTokens {
+	var res: LineTokens
+	if idx >= len(self.lines) || self.lines[idx].text != self.doc.lines[idx] {
+		prev_state := -1
+		if idx-1 >= 0 && self.lines[idx-1].valid {
+			prev_state = self.lines[idx-1].state
+		}
+		res = self.tokenize_line(idx, prev_state)
+	}
+	self.max_wanted_line = common::imax(self.max_wanted_line, idx)
+	return res
+}
+
+// doc
+// 
+fn (self: ^Doc) line_tokens*(idx: int): []tokenizer::Token {
+	return self.highlighter.get_line(idx).tokens
+}
+
+fn split_lines(text: str): []str {
+	res := make([]str, 0)
+	for _, line in strings::gmatch(text + "\n", "(.-)\n") {
+		res = append(res, line[0])
+	}
+	return res
+}
+
+// insert into lines while remove some if given given
+fn splice(t: ^[]str, at, remove: int, insert: []str) {
+	offset := len(insert) - remove
+	old_len := len(t^)
+	if offset < 0 {
+		for i:=at-offset; i<=old_len-offset; i++ {
+			t^[i+offset] = t^[i]
+		}
+	} else if offset > 0 {
+		for i:=old_len; i>=at; i-- {
+			t^[i+offset] = t^[i]
+		}
+	}
+	for i, item in insert {
+		t^[at+i-1] = item
+	}
+}
+
+fn (self: ^Doc) get_change_id*(): int {
+	return self.undo_stack.idx
+}
+
+fn (self: ^Doc) clean*() {
+	self.clean_change_id = self.get_change_id()
+}
+
+fn (self: ^Doc) is_dirty*(): bool {
+	return self.clean_change_id != self.get_change_id()
+}
+
+fn (self: ^Doc) get_name*(): str {
+	if len(self.filename) == 0 {
+		return "unsaved"
+	}
+	return self.filename
+}
+
+fn freadlines(f: std::File): ([]str, bool) {
+	// freadall, clrf
+	bytes, _ := std::freadall(f)
+	res := make([]str, 0)
+	s := 0
+	crlf := false
+	for i in bytes {
+		if bytes[i] == '\n' {
+			if i > 0 && bytes[i-1] == '\r' {
+				crlf = true
+				res = append(res, str(slice(bytes, s, i-1)) + '\n')
+			} else {
+				res = append(res, str(slice(bytes, s, i+1)))
+			}
+			s = i+1
+		}
+	}
+	return res, crlf
+}
+
+
+fn sort_positions(line1, col1, line2, col2: int): (int, int, int, int, bool) {
+	if line1 > line2 || (line1 == line2 && col1 > col2) {
+		return line2, col2, line1, col1, true
+	}
+	return line1, col1, line2, col2, false
+}
+
+fn (self: ^Doc) get_selection*(sort: bool = false): (Selection, bool) {
+	a, b := self.selection.a, self.selection.b
+	if sort {
+		l1,c1,l2,c2,swap := sort_positions(a.line, a.col, b.line, b.col)
+		return Selection{a: {l1,c1}, b:{l2,c2}}, swap
+	}
+	return Selection{a: a, b: b}, false
+}
+
+fn (self: ^Doc) has_selection*(): bool {
+	a, b := self.selection.a, self.selection.b
+	return !(a.line == b.line && a.col == b.col)
+}
+
+fn (self: ^Doc) sanitize_position*(line, col: int): (int, int) {
+	line = common::iclamp(line, 0, len(self.lines)-1)
+	col = common::iclamp(col, 0, len(self.lines[line])-1)
+	return line, col
+}
+
+fn (self: ^Doc) set_selection*(line1, col1: int, line2: int = -1, col2: int = -1, swap: bool = false) {
+	if line2 == -1 { line2 = line1 }
+	if col2 == -1 { col2 = col1 }
+	if swap {
+		line1, col1, line2, col2 = line2, col2, line1, col1
+	}
+	line1, col1 = self.sanitize_position(line1, col1)
+	line2, col2 = self.sanitize_position(line2, col2)
+	self.selection.a.line, self.selection.a.col = line1, col1
+	self.selection.b.line, self.selection.b.col = line2, col2
+}
+
+fn (self: ^Doc) sanitize_selection*() {
+	s, swap := self.get_selection()
+	self.set_selection(s.a.line, s.a.col, s.b.line, s.b.col, swap)
+}
+
+type TranslateFunc* = fn(self: ^Doc, line, col:int): (int, int);
+
+noop* := fn(self: ^Doc, line, col: int): (int, int) { return line, col }
+
+fn (self: ^Doc) position_offset_func*(line, col: int, f: TranslateFunc): (int, int) {
+	line, col = self.sanitize_position(line, col)
+	return f(self, line, col)
+}
+
+fn (self: ^Doc) position_offset_byte*(line, col, offset: int): (int, int) {
+	line, col = self.sanitize_position(line, col)
+	col = col + offset
+	for line > 0 && col < 0 {
+		line = line - 1
+		col = col + len(self.lines[line])-1
+	}
+	for line < len(self.lines) && col >= len(self.lines[line]) {
+		col = col - len(self.lines[line])-1
+		line = line + 1
+	}
+	return self.sanitize_position(line, col)
+}
+
+fn (self: ^Doc) position_offset_linecol*(line, col, lineoffset, coloffset: int): (int, int) {
+	return self.sanitize_position(line + lineoffset, col + coloffset)
+}
+
+fn (self: ^Doc) position_offset*(line, col: int, f: TranslateFunc, offsets: ..int): (int, int) {
+	if len(offsets) == 0 {
+		return self.position_offset_func(line, col, f)
+	} else if len(offsets) == 1 {
+		return self.position_offset_byte(line, col, offsets[0])
+	} else if len(offsets) == 2 {
+		return self.position_offset_linecol(line, col, offsets[0], offsets[1])
+	}
+	std::assert(false, "bad number of arguments")
+	return 0, 0
+}
+
+fn (self: ^Doc) get_text*(line1, col1, line2, col2: int): str {
+	line1, col1 = self.sanitize_position(line1, col1)
+	line2, col2 = self.sanitize_position(line2, col2)
+	var _: bool
+	line1, col1, line2, col2, _ = sort_positions(line1, col1, line2, col2)
+	if line1 == line2 {
+		return slice(self.lines[line1], col1, col2)
+	}
+	lines := make([]str, 0)
+	lines = append(lines, slice(self.lines[line1], col1))
+	for i := line1 + 1; i<=line2 - 1; i++ {
+		lines = append(lines, self.lines[i])
+	}
+	lines = append(lines, slice(self.lines[line2], 0, col2))
+	return strings::join(lines)
+}
+
+fn (self: ^Doc) get_char*(line, col: int): char {
+	line, col = self.sanitize_position(line, col)
+	return self.lines[line][col]
+}
+
+fn push_undo(undo_stack: ^Stack, item: StackItem);
+fn pop_undo(self: ^Doc, undo_stack, redo_stack: ^Stack);
+
+fn (self: ^Doc) raw_insert*(line, col: int, text: str, undo_stack: ^Stack, time: real) {
+	// -- split text into lines and merge with line at insertion point
+	lines := split_lines(text)
+	before := slice(self.lines[line], 0, col)
+	after := slice(self.lines[line], col)
+	for i in lines {
+		lines[i] = lines[i] + "\n"
+	}
+	lines[0] = before + lines[0]
+	lines[len(lines)-1] += after
+
+	// -- splice lines into line array
+	splice(&self.lines, line, 1, lines)
+
+	// -- push undo
+	line2, col2 := self.position_offset(line, col, noop, len(text))
+	sel, swap := self.get_selection()
+	push_undo(undo_stack, {time:time, typ:"selection", selection: sel, swap: swap})
+	push_undo(undo_stack, {time:time, typ:"remove", selection: {a:{line, col}, b:{line2, col2}}})
+
+	// -- update highlighter and assure selection is in bounds
+	self.highlighter.invalidate(line)
+	self.sanitize_selection()
+}
+
+fn (self: ^Doc) raw_remove*(line1, col1, line2, col2: int, undo_stack: ^Stack, time: real) {
+	// -- push undo
+	text := self.get_text(line1, col1, line2, col2)
+	sel, swap := self.get_selection()
+	push_undo(undo_stack, {time:time, typ:"selection", selection: sel, swap: swap})
+	push_undo(undo_stack, {time:time, typ:"insert", selection: {a:{line1, col1}, b:{-1, -1}}, text:text})
+
+	// -- get line content before/after removed text
+	before := slice(self.lines[line1], 0, col1)
+	after := slice(self.lines[line2], col2)
+
+	// -- splice line into line array
+	splice(&self.lines, line1, line2 - line1 + 1, { before + after })
+
+	// -- update highlighter and assure selection is in bounds
+	self.highlighter.invalidate(line1)
+	self.sanitize_selection()
+}
+
+fn (self: ^Doc) insert_multiline*(line, col: int, text: str) {
+	self.redo_stack.idx = 1 
+	line, col = self.sanitize_position(line, col)
+	self.raw_insert(line, col, text, &self.undo_stack, system::get_time())
+}
+
+fn (self: ^Doc) insert*(line, col: int, text: str) {
+	if self.singleline {
+		text = strings::gsub(text, "\n", "")
+	}
+	self.insert_multiline(line, col, text)
+}
+
+fn (self: ^Doc) remove*(line1, col1, line2, col2: int) {
+	self.redo_stack.idx = 1
+	line1, col1 = self.sanitize_position(line1, col1)
+	line2, col2 = self.sanitize_position(line2, col2)
+	var _: bool
+	line1, col1, line2, col2, _ = sort_positions(line1, col1, line2, col2)
+	self.raw_remove(line1, col1, line2, col2, &self.undo_stack, system::get_time())
+}
+
+fn (self: ^Doc) undo*() {
+	pop_undo(self, &self.undo_stack, &self.redo_stack)
+}
+
+fn (self: ^Doc) redo*() {
+	pop_undo(self, &self.redo_stack, &self.undo_stack)
+}
+
+fn (self: ^Doc) delete_to*(f: TranslateFunc, args: ..int) {
+	sel, _ := self.get_selection(true)
+	line, col := sel.a.line, sel.a.col
+	if self.has_selection() {
+		sel1, _ := self.get_selection()
+		self.remove(sel1.a.line, sel1.b.col, sel1.a.line, sel1.b.col)
+	} else {
+		line2, col2 := self.position_offset(line, col, f, args)
+		self.remove(line, col, line2, col2)
+		var _a, _b: int
+		line, col, _a, _b, _ = sort_positions(line, col, line2, col2)
+	}
+	self.set_selection(line, col)
+}
+
+fn (self: ^Doc) move_to*(f: TranslateFunc, args: ..int) {
+	sel, _ := self.get_selection()
+	line, col := self.position_offset(sel.a.line, sel.a.col, f, args)
+	self.set_selection(line, col)
+}
+
+fn (self: ^Doc) select_to*(f: TranslateFunc, args: ..int) {
+	sel, _ := self.get_selection()
+	line, col := self.position_offset(sel.a.line, sel.a.col, f, args)
+	self.set_selection(line, col, sel.b.line, sel.b.col)
+}
+
+fn (self: ^Doc) text_input*(text: str) {
+	if self.has_selection() {
+		self.delete_to(noop)
+	}
+	sel, _ := self.get_selection()
+	self.insert(sel.a.line, sel.a.col, text)
+	self.move_to(noop, len(text))
+}
+
+fn (self: ^Doc) replace*(rf: fn(old:str): (str, int)): int {
+	var (
+		line1, col1, line2, col2: int
+		swap: bool
+	)
+	had_selection := self.has_selection()
+	if had_selection {
+		sel, swap2 := self.get_selection(true)
+		line1, col1, line2, col2 = sel.a.line, sel.a.col, sel.b.line, sel.b.col
+		swap = swap2
+	} else {
+		line1, col1, line2, col2 = 0, 0, len(self.lines), len(self.lines[len(self.lines)-1])
+	}
+	old_text := self.get_text(line1, col1, line2, col2)
+	new_text, n := rf(old_text)
+	if old_text != new_text {
+		self.insert(line2, col2, new_text)
+		self.remove(line1, col1, line2, col2)
+		if had_selection {
+			line2, col2 = self.position_offset(line1, col1, noop, len(new_text))
+			self.set_selection(line1, col1, line2, col2, swap)
+		}
+	}
+	return n
+}
+
+fn push_undo(undo_stack: ^Stack, item: StackItem) {
+	undo_stack.data[undo_stack.idx] = item
+	undo_stack.data = delete(undo_stack.data, undo_stack.idx - config::max_undos)
+	undo_stack.idx = undo_stack.idx + 1
+}
+
+fn pop_undo(self: ^Doc, undo_stack, redo_stack: ^Stack) {
+	// -- pop command
+	if !validkey(undo_stack.data, undo_stack.idx-1) { return }
+	cmd := undo_stack.data[undo_stack.idx-1]
+	undo_stack.idx = undo_stack.idx - 1
+	sel := cmd.selection
+
+	// -- handle command
+	if cmd.typ == "insert" {
+		self.raw_insert(sel.a.line, sel.a.col, cmd.text, redo_stack, cmd.time)
+	} else if cmd.typ == "remove" {
+		self.raw_remove(sel.a.line, sel.a.col, sel.b.line, sel.b.col, redo_stack, cmd.time)
+	} else if cmd.typ == "selection" {
+		self.selection = sel
+	}
+
+	// -- if next undo command is within the merge timeout then treat as a single
+	// -- command and continue to execute it
+	if validkey(undo_stack.data, undo_stack.idx-1) {
+		next := undo_stack.data[undo_stack.idx - 1]
+		if fabs(cmd.time - next.time) < real(config::undo_merge_timeout) {
+			pop_undo(self, undo_stack, redo_stack)
+			return
+		}
+	}
+}
+
+fn (self: ^Doc) reset_syntax*() {
+	l2, c2 := self.position_offset(0, 0, noop, 128)
+	header := self.get_text(0, 0, l2, c2)
+	syn := syntax::get(self.filename, header)
+	if self.syntax != syn {
+		self.syntax = syn
+		self.highlighter.reset()
+	}
+}
+
+fn (self: ^Doc) load*(filename: str) {
+	fp, err := std::fopen(filename, "rb")
+	std::exitif(err)
+	self.lines, self.crlf = freadlines(fp)
+	if len(self.lines) == 0 {
+		self.lines = {"\n"}
+	}
+	std::fclose(fp)
+	self.reset_syntax()
+}
+
+fn (self: ^Doc) save*(filename: str = "") {
+	if len(filename) == 0 {
+		filename = self.filename
+	}
+	std::assert(len(filename) > 0, "no filename set to default to")
+	fp, err := std::fopen(filename, "wb")
+	std::exitif(err)
+	for _, line in self.lines {
+		if self.crlf { line = strings::gsub(line, "\n", "\r\n")}
+		std::fwrite(fp, line)
+	}
+	std::fclose(fp)
+	self.filename = filename
+	self.reset_syntax()
+	self.clean()
+}
+
+fn (self: ^Doc) reset*() {
+	self.lines = {"\n"}
+	self.selection = {}
+	self.undo_stack = {}
+	self.redo_stack = {}
+	self.clean_change_id = 0
+	self.highlighter = get_new_highlighter(self)
+	self.reset_syntax()
+}
+
+fn get_new*(filename: str): ^Doc {
+	var self: Doc
+	self.reset()
+	if len(filename) != 0 {
+		self.load(filename)
+	}
+	return &self
+}

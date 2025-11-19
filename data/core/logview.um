@@ -1,0 +1,75 @@
+import (
+	"view.um"
+	"renderer.um"
+	"strings.um"
+	"cex.um"
+	"style.um"
+)
+
+type LogView* = struct {
+	view: view::View;
+	last_item: cex::LogItem;
+	yoffset: real;
+}
+
+fn get_new*(): LogView {
+	var res: LogView
+	res.view = view::get_new()
+	res.last_item = cex::log_items[len(cex::log_items)-1]
+	res.view.scrollable = true
+	res.yoffset = 0
+	return res
+}
+
+fn (self: ^LogView) get_name*(): str {
+	return "Log"
+}
+
+fn (self: ^LogView) update*() {
+	item := cex::log_items[len(cex::log_items)-1]
+	if self.last_item != item {
+		self.last_item = item
+		self.view.scroll.to.y = 0
+		self.yoffset = -(renderer::font_get_height(style::font) + style::padding.y)
+	}
+	self.view.move_towards(&self.yoffset, 0)
+	self.view.update()
+}
+
+fn draw_text_multiline(font: renderer::Font, text: str, x,y: real, color: renderer::Color): (real, real) {
+	th := renderer::font_get_height(font)
+	resx, resy := x, y
+	for _, line in strings::gmatch(text, "[^\n]+") {
+		resy = y
+		resx = renderer::draw_text(style::font, line[0], x, y, color)
+		y += th
+	}
+	return resx, resy
+}
+
+fn (self: ^LogView) draw*() {
+	self.view.draw_background(style::background)
+
+	ox, oy := self.view.get_content_offset()
+	th := renderer::font_get_height(style::font)
+	y := oy + style::padding.y + self.yoffset
+
+	for i := len(cex::log_items)-1; i>=0; i-- {
+		x := ox + style::padding.x
+		item := cex::log_items[i]
+		// NOTE implement this
+		// time := system::strftime(item.time, "Date")
+		time := sprintf("TIME:%v", item.time)
+		x = renderer::draw_text(style::font, time, x, y, style::dim)
+		x = x + style::padding.x
+		subx := x
+		x, y = draw_text_multiline(style::font, item.text, x, y, style::text)
+		renderer::draw_text(style::font, " at " + item.at, x, y, style::dim)
+		y = y + th
+		if len(item.info) == 0 {
+			subx, y = draw_text_multiline(style::font, item.info, subx, y, style::dim)
+			y = y + th
+		}
+		y = y + style::padding.y
+	}
+}

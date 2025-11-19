@@ -1,0 +1,66 @@
+import (
+	"strings.um"
+	"std.um"
+)
+
+type Command* = struct {
+	predicate: fn(): bool;
+	perform: fn();
+}
+
+var (
+	command_map: map[str]Command
+)
+
+fn always_true*(): bool {
+	return true
+}
+
+fn add*(predicate: fn(): bool, m: map[str]fn()) {
+	if !valid(predicate) {
+		predicate = always_true
+	}
+	for _, name in keys(m) {
+		std::assert(!validkey(command_map, name), "command already exist: " + name)
+		command_map[name] = Command{predicate: predicate, perform: m[name]}
+	}
+}
+
+fn capitalize_first(s: str): str {
+	return strings::upper(slice(s, 0, 1)) + slice(s, 1)
+}
+
+fn prettify_name*(name: str): str {
+	name = strings::gsub(name, ":", ": ")
+	name = strings::gsub(name, "-", " ")
+	return strings::gsub_fn(name, "%S+", capitalize_first)
+}
+
+fn get_all_valid*(): []str {
+	res := make([]str, 0)
+	for _, name in keys(command_map) {
+		cmd := command_map[name]
+		if cmd.predicate() {
+			res = append(res, name)
+		}
+	}
+	return res
+}
+
+fn r_perform(name: str): bool {
+	if validkey(command_map, name) {
+		cmd := command_map[name]
+		if cmd.predicate() {
+			cmd.perform()
+			return true
+		}
+	}
+	return false
+}
+
+fn perform*(name: str): bool {
+	// NOTE must not fail here
+	// return bool(system::try(|name| { return r_perform(name) })
+	return r_perform(name)
+}
+

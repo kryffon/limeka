@@ -1,0 +1,133 @@
+import (
+	"std.um"
+	"common.um"
+	"command.um"
+	"view.um"
+	"system.um"
+	"style.um"
+	"cex.um"
+	"config.um"
+	"logview.um"
+	"renderer.um"
+	"docview.um"
+)
+
+type Message* = struct {
+	color: renderer::Color;
+	font: renderer::Font;
+	text: str;
+}
+
+type StatusView* = struct {
+	view: view::View;
+	message: []Message;
+	message_timeout: real;
+}
+
+separator  := "      "
+separator2 := "   |   "
+
+fn get_new*(): StatusView {
+	var self: StatusView
+	self.view = view::get_new()
+	return self
+}
+
+fn is_active_log_view(): bool {
+	switch av := type(cex::active_view) {
+		case ^logview::LogView: return true
+	}
+	return false
+}
+
+fn is_active_doc_view(): bool {
+	switch av := type(cex::active_view) {
+		case ^docview::DocView: return true
+	}
+	return false
+}
+
+fn (self: ^StatusView) on_mouse_pressed*() {
+	cex::set_active_view(cex::last_active_view)
+	if system::get_time() < self.message_timeout && !is_active_log_view() {
+		command::perform("core:open-log")
+	}
+}
+
+fn show_message*(self: ^StatusView, icon_color: renderer::Color, icon, text: str) {
+	self.message = {
+		{color: icon_color, font: style::icon_font, text: icon},
+		{color: style::dim, font: style::font, text: separator2},
+		{color: style::text, font: style::font, text: text},
+	}
+	self.message_timeout = system::get_time() + config::message_timeout
+}
+
+fn (self: ^StatusView) update*() {
+	self.view.size.y = renderer::font_get_height(style::font) + style::padding.y * 2
+	if system::get_time() < self.message_timeout {
+		self.view.scroll.to.y = self.view.size.y
+	} else {
+		self.view.scroll.to.y = 0
+	}
+	self.view.update()
+}
+
+fn (self: ^StatusView) draw_items*(items: []Message, right_align: bool = false, yoffset: real = 0) {
+	x, y := self.view.get_content_offset()
+	y = y + yoffset
+	if right_align {
+		w := 0.0
+		for _, msg^ in items {
+			w += renderer::font_get_width(msg.font, msg.text)
+		}
+		x = x + self.view.size.x - w - style::padding.x
+	} else {
+		x = x + style::padding.x
+	}
+	for _, msg^ in items {
+		x = common::draw_text(msg.font, msg.color, msg.text, "", x, y, 0, self.view.size.y).item0
+	}
+}
+
+fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
+	if is_active_doc_view() {
+		dv := ^docview::DocView(cex::active_view)
+		sel, _ := dv.doc.get_selection()
+		line := std::itoa(sel.a.line)
+		col := std::itoa(sel.a.col)
+		percent := std::itoa(floor(real(sel.a.line)*100/real(len(dv.doc.lines))))
+		dirty := dv.doc.is_dirty()
+
+		return {
+			{dirty ? style::accent : style::text, style::icon_font, "f"},
+			{style::dim, style::font, separator2},
+			{(len(dv.doc.filename) > 0)? style::text : style::dim, style::font, dv.doc.get_name()},
+			{style::text, style::font, separator + "line: " + line + separator},
+			{(sel.a.col > config::line_limit)? style::accent : style::text, style::font, "col: " + col},
+			{style::text, style::font, separator + percent + "%"},
+		}, {
+			{style::text, style::icon_font, "g"},
+			{style::dim, style::font, separator2},
+			{style::text, style::font, std::itoa(len(dv.doc.lines)) + " lines" + separator + ((dv.doc.crlf)? "CRLF" : "LF")},
+		}
+	}
+
+	return {}, {
+		{style::text, style::icon_font, "g"},
+		{style::dim, style::font, separator2 + std::itoa(len(cex::docs))},
+		{style::text, style::font, " / " + std::itoa(len(cex::project_files)) + " files"},
+	}
+}
+
+fn (self: ^StatusView) draw*() {
+	self.view.draw_background(style::background2)
+	if len(self.message) > 0 {
+		self.draw_items(self.message, false, self.view.size.y)
+	}
+	left, right := self.get_items()
+	self.draw_items(left)
+	self.draw_items(right, true)
+}
+
+

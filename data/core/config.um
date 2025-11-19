@@ -1,0 +1,22 @@
+import (
+	"env.um"
+)
+
+var (
+	project_scan_rate*: int = 5
+	fps*: real = 60
+	max_log_items*: int = 80
+	message_timeout*: real = 3
+	mouse_wheel_scroll*: real = 50 * env::SCALE
+	file_size_limit*: real = 10
+	ignore_files*: str = "^%."
+	symbol_pattern*: str = "[%a_][%w_]*"
+	non_word_chars*: str = " \t\n/\\()\"':,.;<>~!@#$%^&*|+=[]{}`?-"
+	undo_merge_timeout*: real = 0.3
+	max_undos*: int = 10000
+	highlight_current_line*: bool = true
+	line_height*: real = 1.2
+	indent_size*: int = 2
+	tab_type*: str = "soft"
+	line_limit*: int = 80
+)

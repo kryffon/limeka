@@ -1,0 +1,241 @@
+import (
+	"env.um"
+	"renderer.um"
+	"strings.um"
+	"system.um"
+)
+
+type Vec2* = struct {
+	x, y: real;
+}
+
+type Rect* = struct {
+	x,y,w,h: real;
+}
+
+fn imin*(a, b: int): int {
+	return (a<b)?a:b
+}
+
+fn imax*(a, b: int): int {
+	return (a>b)?a:b
+}
+
+fn fmin*(a, b: real): real {
+	return (a<b)?a:b
+}
+
+fn fmax*(a, b: real): real {
+	return (a>b)?a:b
+}
+
+fn is_utf8_cont*(c: char): bool {
+	return int(c) >= 0x80 && int(c) < 0xc0
+}
+
+fn utf8_chars*(text: str): []str {
+	pattern := "["
+	pattern += char(0x00)
+	pattern += "-"
+	pattern += char(0x7f)
+	pattern += char(0xc2)
+	pattern += "-"
+	pattern += char(0xf4)
+	pattern += "]["
+	pattern += char(0x80)
+	pattern += "-"
+	pattern += char(0xbf)
+	pattern += "]*"
+	// matches := strings::gmatch(text, "[\x00-\x7f\xc2-\xf4][\x80-\xbf]*")
+	matches := strings::gmatch(text, pattern)
+	res := make([]str, len(matches))
+	for i, m in matches {
+		res[i] = m[0]
+	}
+	return res
+}
+
+fn iclamp*(n, lo, hi: int): int {
+	if n <= lo {
+		return lo
+	} else if n >= hi {
+		return hi
+	}
+	return n
+}
+
+fn fclamp*(n, lo, hi: real): real {
+	if n <= lo {
+		return lo
+	} else if n >= hi {
+		return hi
+	}
+	return n
+}
+
+// built-in round
+
+fn flerp*(a, b, t: real): real {
+	return a + (b-a)*t
+}
+
+fn lerp_arr*(a, b: []real, t: real): []real {
+	n := (len(a) < len(b))? len(a) : len(b)
+	c := make([]real, n)
+	for i:=0; i<n; i++ {
+		c[i] = a[i] + (b[i]-a[i])*t
+	}
+	return c
+}
+
+fn lerp_color*(a, b: renderer::Color, t: real): renderer::Color {
+	t = fclamp(t, 0.0, 1.0)
+	return renderer::Color{
+		r: system::lerp_uint8(a.r, b.r, t),
+		g: system::lerp_uint8(a.g, b.g, t),
+		b: system::lerp_uint8(a.b, b.b, t),
+		a: system::lerp_uint8(a.a, b.a, t),
+	}
+}
+
+fn hex2int(c: char): int {
+	if c >= '0' && c <= '9' {
+		return int(c) - int('0')
+	} else if c >= 'a' && c <= 'f' {
+		return int(c) - int('a') + 10
+	} else if c >= 'A' && c <= 'F' {
+		return int(c) - int('A') + 10
+	}
+	return 0
+}
+
+fn hexstr2int*(num: str): int {
+	res := 0
+	w := 1
+	for i := len(num)-1; i >=0; i-- {
+		res += w * hex2int(num[i])
+		w *= 16
+	}
+	return res
+}
+
+fn color*(text: str): renderer::Color {
+	vals := strings::match(text, "#(%x%x)(%x%x)(%x%x)")
+	if len(vals) == 3 {
+		r := hexstr2int(vals[0])
+		g := hexstr2int(vals[1])
+		b := hexstr2int(vals[2])
+		return renderer::Color{uint8(r), uint8(g), uint8(b), 255}
+	}
+	// vals = strings::match("rgba?%s*%([%d%s%.,]+%)")
+	// if len(vals) > 0 {
+	// 	f := strings::gmatch("[%d.]+")
+	// }
+	return renderer::Color{0,0,0,255}
+}
+
+type Pair* = struct {
+	score, index: int;
+}
+
+fn fuzzy_match*(items: []str, needle: str): []str {
+	scores := make([]Pair, 0)
+	for i, haystack in items {
+		s, ok := system::fuzzy_match(haystack, needle)
+		if ok {
+			scores = append(scores, Pair{s, i})
+		}
+	}
+	sort(scores, false, score)
+	sorted := make([]str, len(scores))
+	for i, p in scores {
+		sorted[i] = items[p.index]
+	}
+	return sorted
+}
+
+fn is_prefix_lower(a, b: str): bool {
+	if len(a) < len(b) {
+		return false
+	}
+	for i := len(b)-1; i >= 0; i-- {
+		x := int(a[i])
+		y := int(b[i])
+		if x >= int('A') && x <= int('Z') { x += 32 }
+		if y >= int('A') && y <= int('Z') { y += 32 }
+		if x != y {
+			return false
+		}
+	}
+	return true
+}
+
+// NOTE i dont know why but i dont want to write this exactly like they did in lua
+fn path_suggest*(text: str): []str {
+	pos := 0
+	for i := len(text)-1; i >= 0; i-- {
+		if text[i] == env::PATHSEP {
+			pos = i
+			break
+		}
+	}
+
+	var dir: str
+	if pos == 0 {
+		dir = "."
+	} else {
+		dir = slice(text, 0, pos)
+	}
+	name := slice(text, pos+1)
+	// INFO list_dir returns only basename
+	fileinfos := system::list_dir(dir)
+	if len(fileinfos) == 0 {
+		return []str{}
+	}
+	res := make([]str, 0)
+	for _, fi in fileinfos {
+		file := fi.name
+		if fi.is_dir {
+			file += env::PATHSEP
+		}
+		// s, _, _ := strings.search(strings.lower(file), strings.lower(name))
+		if is_prefix_lower(file, name) {
+			res = append(res, dir + env::PATHSEP + file)
+		}
+	}
+	return res
+}
+
+fn match_pattern*(text: str, patterns: []str, init: int = 0, plain: bool = false): (int, int, bool) {
+	for _, p in patterns {
+		if s, e, found := strings::find(text, p, init, plain); found {
+			return s, e, true
+		}
+	}
+	return 0, 0, false
+}
+
+fn draw_text*(font: renderer::Font, color: renderer::Color, text: str, align: str, x,y,w,h:real): (real, real) {
+	tw := renderer::font_get_width(font, text)
+	th := renderer::font_get_height(font)
+	if align == "center" {
+		x = x + (w-tw)/2
+	} else if align == "right" {
+		x = x + (w-tw)
+	}
+	y = round(y + (h-th)/2)
+	return renderer::draw_text(font, text, x, y, color), y+th
+}
+
+// INFO the captures for closure are not part of func signature
+// it prints total time taken and percentage of time used in one frame in 60FPS
+fn bench*(name: str, func: fn(args: ..any): any, args: ..any): any {
+	start := system::get_time()
+	res := func(args)
+	t := system::get_time() - start
+	ms := t * 1000.0
+	// per := (t / (1.0 / 60.0)) * 100.0
+	per := ms * 6.0
+	printf("*** %-16s : %8.3fms %6.2f%%\n", name, ms, per)
+	return res
+}
