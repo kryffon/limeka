@@ -1,15 +1,39 @@
 import (
 	"env.um"
 	"doc.um"
+	"view.um"
 	"docview.um"
 	"common.um"
 	"cex.um"
 	"renderer.um"
 	"style.um"
+	"config.um"
+	"system.um"
+	"strings.um"
+	"keymap.um"
 )
 
 type CommandView* = struct{
-	dv: docview::DocView;
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+
+	// docview
+	last_x_offset: docview::Offset;
+	doc: ^doc::Doc;
+	font: str;
+	blink_timer: real;
+	mouse_selecting: struct {
+		valid: bool;
+		line, col, clicks: int;
+	}
+	last_line, last_col: int;
+
+	// commandview
 	suggestion_idx: int;
 	suggestions: []cex::Suggestion;
 	suggestions_height: real;
@@ -23,51 +47,215 @@ type CommandView* = struct{
 		suggest: cex::SuggestFunc;
 		cancel: cex::CancelFunc;
 	};
-	font: str;
 	label: str;
 }
 
-
 max_suggestions := 10
+blink_period := 0.8
 
 fn get_new*(): ^CommandView {
-	var self: CommandView
-	var sdoc: doc::Doc
+	sdoc := doc::get_new("")
 	sdoc.singleline = true
 	
-	self.dv = docview::get_new(&sdoc)
+	self := new(CommandView)
+	self.cursor = "ibeam"
+	self.scrollable = true
+	self.doc = sdoc
 	self.font = "font"
-	return &self
+	return self
+}
+
+fn (self: ^CommandView) get_debug*(): str {
+	return sprintf("CommandView p%v s%v", self.position, self.size)
+}
+
+fn (self: ^CommandView) try_close*(do_close: fn()) {
+	if self.doc.is_dirty() && cex::count_views_referencing_doc(self.doc) == 1 {
+		submit := fn(_: str, item: ^cex::Suggestion) |self, do_close| {
+			if matches := strings::match(item.text, "^[cC]"); len(matches) > 0 {
+				do_close()
+			} else if matches1 := strings::match(item.text, "^[sS]"); len(matches1) > 0 {
+				self.doc.save()
+				do_close()
+			}
+		}
+		suggest := fn(text: str): []str {
+			items := make([]str, 0)
+			if !strings::find(text, "^[^cC]").item2 {
+				items = append(items, "Close Without Saving")
+			}
+			if !strings::find(text, "^[^sS]").item2 {
+				items = append(items, "Save && Close")
+			}
+			return items
+		}
+		cancel := fn(_: bool) {}
+		cex::command_view_enter("Unsaved Changes; Confirm Close", submit, suggest, cancel)
+	} else {
+		do_close()
+	}
 }
 
 fn (self: ^CommandView) get_name*(): str {
-	return self.dv.view.get_name()
+	return "---"
 }
 
-fn (self: ^CommandView) get_line_screen_position*(): (real, real) {
-	x, _ := self.dv.get_line_screen_position(1)
-	_, y := self.dv.view.get_content_offset()
-	lh := self.dv.get_line_height()
-	return x, y + (self.dv.view.size.y - lh) / 2
+fn (self: ^CommandView) get_cursor*(): str {
+	return self.cursor
 }
 
-fn (self: ^CommandView) get_scrollable_size*(): real {
+fn (self: ^CommandView)	get_scrollable_size*(): real {
 	return 0
 }
 
-fn (self: ^CommandView) scroll_to_make_visible*() {
+fn (self: ^CommandView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^CommandView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^CommandView) on_mouse_released*(button: str, x, y: real) {
+	view::on_mouse_released(&self.dragging_scrollbar)
+	self.mouse_selecting.valid = false
+}
+
+fn (self: ^CommandView) on_text_input*(text: str) {
+	self.doc.text_input(text)
+}
+
+fn (self: ^CommandView) on_mouse_wheel*(y: real) {
+	view::on_mouse_wheel(self.scrollable, &self.scroll, y)
+}
+
+fn (self: ^CommandView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^CommandView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^CommandView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^CommandView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
+fn (self: ^CommandView) update*();
+fn (self: ^CommandView) draw*();
+
+fn (self: ^CommandView) dv_get_font*(): renderer::Font {
+	if self.font == "big_font" {
+		return style::big_font
+	} else if self.font == "code_font" {
+		return style::code_font
+	} else if self.font == "icon_font" {
+		return style::icon_font
+	}
+	return style::font
+}
+
+fn (self: ^CommandView) dv_get_line_height*(): real {
+	// NOTE check if font_height needs a floor
+	return renderer::font_get_height(self.dv_get_font()) * config::line_height
+}
+
+fn (self: ^CommandView) get_gutter_width*(): real {
+	return self.gutter_width
+}
+
+// INFO this one called an inherited func
+fn (self: ^CommandView) get_line_screen_position*(_: int = 0): (real, real) {
+	x, y := self.get_content_offset()
+	lh := self.dv_get_line_height()
+	gw := self.get_gutter_width()
+	return x + gw, y + (self.size.y - lh) / 2
+}
+
+fn (self: ^CommandView) dv_get_x_offset_col*(line: int, x: real): int {
+	text := self.doc.lines[line]
+	var (
+		xoffset: real = 0
+		last_i, i: int = 0, 0
+	)
+	for _, ch in common::utf8_chars(text) {
+		w := real(renderer::font_get_width(self.dv_get_font(), ch))
+		if xoffset >= x {
+			 return (xoffset - x > w / 2)? last_i : i
+		}
+		xoffset = xoffset + w
+		last_i = i
+		i = i + len(ch)
+	}
+	return len(text)
+}
+
+fn (self: ^CommandView) dv_resolve_screen_position*(x, y: real): (int, int) {
+	ox, oy := self.get_line_screen_position(0)
+	line := floor((y - oy) / self.dv_get_line_height()) + 1
+	line = common::iclamp(line, 0, len(self.doc.lines)-1)
+	col := self.dv_get_x_offset_col(line, x - ox)
+	return line, col
+}
+
+fn (self: ^CommandView) on_mouse_pressed*(button: str, x, y: real, clicks: int): bool {
+	caught := view::on_mouse_pressed(self.get_scrollbar_rect(), &self.dragging_scrollbar, x, y)
+	if caught {
+		return true
+	}
+	if keymap::modkeys["shift"] {
+		if clicks == 1 {
+			sel, _ := self.doc.get_selection()
+			line1, col1 := sel.b.line, sel.b.col
+			line2, col2 := self.dv_resolve_screen_position(x, y)
+			self.doc.set_selection(line2, col2, line1, col1)
+		}
+	} else {
+		line, col := self.dv_resolve_screen_position(x, y)
+		l1, c1, l2, c2 := docview::mouse_selection(self.doc, clicks, line, col, line, col)
+		self.doc.set_selection(l1, c1, l2, c2)
+		self.mouse_selecting = {valid: true, line: line, col: col, clicks: clicks}
+	}
+	self.blink_timer = 0
+	return false
+}
+
+fn (self: ^CommandView) on_mouse_moved*(x,y,dx,dy: real) {
+	view::on_mouse_moved(
+		&self.hovered_scrollbar, &self.dragging_scrollbar, self.position,
+		self.size, &self.scroll, self.get_scrollable_size(), x, y, dx, dy
+	)
+	if self.scrollbar_overlaps_point(x, y) || self.dragging_scrollbar {
+		self.cursor = "arrow"
+	} else {
+		self.cursor = "ibeam"
+	}
+	if self.mouse_selecting.valid {
+		l1, c1 := self.dv_resolve_screen_position(x, y)
+		l2, c2 := self.mouse_selecting.line, self.mouse_selecting.col
+		clicks := self.mouse_selecting.clicks
+		l1, c1, l2, c2 = docview::mouse_selection(self.doc, clicks, l1, c1, l2, c2)
+		self.doc.set_selection(l1, c1, l2, c2)
+	}
+}
+
+fn (self: ^CommandView) scroll_to_make_visible*(line, col: int) {
 	// -- no-op function to disable this functionality
 }
 
 fn (self: ^CommandView) get_text*(): str {
-	return self.dv.doc.get_text(1, 1, 1, env::INT_MAX)
+	return self.doc.get_text(0, 0, 0, env::INT_MAX)
 }
 
 fn (self: ^CommandView) set_text*(text: str, select: bool = false) {
-	self.dv.doc.remove(1, 1, env::INT_MAX, env::INT_MAX)
-	self.dv.doc.text_input(text)
+	self.doc.remove(0, 0, env::INT_MAX, env::INT_MAX)
+	self.doc.text_input(text)
 	if select {
-		self.dv.doc.set_selection(env::INT_MAX, env::INT_MAX, 1, 1)
+		self.doc.set_selection(env::INT_MAX, env::INT_MAX, 0, 0)
 	}
 }
 
@@ -81,25 +269,20 @@ fn (self: ^CommandView) move_suggestion_idx*(dir: int) {
 	n := self.suggestion_idx + dir
 	self.suggestion_idx = common::iclamp(n, 0, len(self.suggestions)-1)
 	self.complete()
-	self.last_change_id = self.dv.doc.get_change_id()
+	self.last_change_id = self.doc.get_change_id()
 }
 
 fn (self: ^CommandView) is_active_view*(): bool {
-	switch av := type(cex::active_view) {
-		case ^CommandView: {
-			if av == self { return true }
-		}
-	}
-	return false
+	return selfptr(cex::active_view) == self
 }
 
-fn (self: ^CommandView) exit*(submitted: bool, inexplicit: bool = false) {
+fn (self: ^CommandView) exit*(submitted: bool = false, inexplicit: bool = false) {
 	if self.is_active_view() {
 		cex::set_active_view(cex::last_active_view)
 	}
 	cancel := self.state.cancel
 	self.state = {}
-	self.dv.doc.reset()
+	self.doc.reset()
 	self.suggestions = {}
 	if !submitted && valid(cancel) {
 		cancel(!inexplicit)
@@ -127,80 +310,95 @@ fn (self: ^CommandView) update_suggestions*() {
 	self.suggestion_idx = 0
 }
 
-fn enter*(self: ^CommandView, text: str, submit: cex::SubmitFunc, suggest: cex::SuggestFunc, cancel: cex::CancelFunc) {
-	if self.state.filled {
-		return
-	}
-	self.state = {true, submit, suggest, cancel}
-	cex::set_active_view(self)
-	self.update_suggestions()
-	self.gutter_text_brightness = 100
-	self.label = text + ": "
-}
-
-
-fn (self: ^CommandView) get_gutter_width*(): real {
-	return self.gutter_width
-}
-
 fn (self: ^CommandView) get_suggestion_line_height*(): real {
-	return renderer::font_get_height(self.dv.get_font()) + style::padding.y
+	return renderer::font_get_height(self.dv_get_font()) + style::padding.y
 }
 
+fn (self: ^CommandView) dv_update*() {
+	is_av := self.is_active_view()
+	// -- scroll to make caret visible && reset blink timer if it moved
+	sel, _ := self.doc.get_selection()
+	line, col := sel.a.line, sel.a.col
+	if (line != self.last_line || col != self.last_col) && self.size.x > 0 {
+		if is_av {
+			self.scroll_to_make_visible(line, col)
+		}
+		self.blink_timer = 0
+		self.last_line, self.last_col = line, col
+	}
+
+	// -- update blink timer
+	if is_av && !self.mouse_selecting.valid {
+		n := blink_period / 2
+		prev := self.blink_timer
+		self.blink_timer = (self.blink_timer + 1 / config::fps) % blink_period
+		if (self.blink_timer > n) != (prev > n) {
+			cex::redraw = true
+		}
+	}
+
+	view::update(self.get_scrollable_size(), self.size, &self.scroll)
+}
 
 fn (self: ^CommandView) update*() {
-	self.dv.update()
+	self.dv_update()
 
 	if self.is_active_view() && self.state.filled {
 		self.exit(false, true)
 	}
 
 	// -- update suggestions if text has changed
-	if self.last_change_id != self.dv.doc.get_change_id() {
+	if self.last_change_id != self.doc.get_change_id() {
 		self.update_suggestions()
-		self.last_change_id = self.dv.doc.get_change_id()
+		self.last_change_id = self.doc.get_change_id()
 	}
 
 	// -- update gutter text color brightness
-	self.dv.view.move_towards(&self.gutter_text_brightness, 0, 0.1)
+	view::move_towards(&self.gutter_text_brightness, 0, 0.1)
 
 	// -- update gutter width
-	dest := renderer::font_get_width(self.dv.get_font(), self.label) + style::padding.x
-	if self.dv.view.size.y <= 0 {
+	dest := renderer::font_get_width(self.dv_get_font(), self.label) + style::padding.x
+	if self.size.y <= 0 {
 		self.gutter_width = dest
 	} else {
-		self.dv.view.move_towards(&self.gutter_width, dest)
+		view::move_towards(&self.gutter_width, dest)
 	}
 
 	// -- update suggestions box height
 	lh := self.get_suggestion_line_height()
 	dest = len(self.suggestions) * lh
-	self.dv.view.move_towards(&self.suggestions_height, dest)
+	view::move_towards(&self.suggestions_height, dest)
 
 	// -- update suggestion cursor offset
 	dest = self.suggestion_idx * self.get_suggestion_line_height()
-	self.dv.view.move_towards(&self.selection_offset, dest)
+	view::move_towards(&self.selection_offset, dest)
 
 	// -- update size based on whether this is the active_view
 	dest = 0
 	if self.is_active_view() {
 		dest = renderer::font_get_height(style::font) + style::padding.y * 2
 	}
-	self.dv.view.move_towards(&self.dv.view.size.y, dest)
+	view::move_towards(&self.size.y, dest)
 }
 
 
-fn (self: ^CommandView) draw_line_highlight*() {
+fn (self: ^CommandView) draw_line_highlight*(x, y: real) {
 	// -- no-op function to disable this functionality
 }
 
+fn (self: ^CommandView) dv_get_line_text_y_offset*(): real {
+	lh := self.dv_get_line_height()
+	th := renderer::font_get_height(self.dv_get_font())
+	return (lh - real(th)) / 2.0
+}
+
 fn (self: ^CommandView) draw_line_gutter*(idx: int, x, y: real) {
-	yoffset := self.dv.get_line_text_y_offset()
-	pos := self.dv.view.position
+	yoffset := self.dv_get_line_text_y_offset()
+	pos := self.position
 	color := common::lerp_color(style::text, style::accent, self.gutter_text_brightness / 100.0)
-	cex::push_clip_rect(pos.x, pos.y, self.get_gutter_width(), self.dv.view.size.y)
+	cex::push_clip_rect(pos.x, pos.y, self.get_gutter_width(), self.size.y)
 	x = x + style::padding.x
-	renderer::draw_text(self.dv.get_font(), self.label, x, y + yoffset, color)
+	renderer::draw_text(self.dv_get_font(), self.label, x, y + yoffset, color)
 	cex::pop_clip_rect()
 }
 
@@ -209,8 +407,8 @@ fn draw_suggestions_box(self: ^CommandView) {
 	dh := style::divider_size
 	x, _ := self.get_line_screen_position()
 	h := ceil(self.suggestions_height)
-	position := self.dv.view.position
-	size := self.dv.view.size
+	position := self.position
+	size := self.size
 	rx, ry, rw, rh := position.x, position.y - h - dh, size.x, h
 
 	// -- draw suggestions background
@@ -226,20 +424,121 @@ fn draw_suggestions_box(self: ^CommandView) {
 	for i, item^ in self.suggestions {
 		color := (i == self.suggestion_idx)? style::accent : style::text
 		y := position.y - i * lh - dh
-		common::draw_text(self.dv.get_font(), color, item.text, "", x, y, 0, lh)
+		common::draw_text(self.dv_get_font(), color, item.text, "", x, y, 0, lh)
 
 		if len(item.info) > 0 {
 			w := size.x - x - style::padding.x
-			common::draw_text(self.dv.get_font(), style::dim, item.info, "right", x, y, w, lh)
+			common::draw_text(self.dv_get_font(), style::dim, item.info, "right", x, y, w, lh)
 		}
 	}
 	cex::pop_clip_rect()
 }
 
+fn (self: ^CommandView) dv_get_visible_line_range*(): (int, int) {
+	bounds := self.get_content_bounds().item0
+	y, y2 := bounds.y, bounds.h
+	lh := self.dv_get_line_height()
+	minline := common::imax(0, floor(y / lh))
+	maxline := common::imin(len(self.doc.lines)-1, floor(y2 / lh) + 1)
+	return minline, maxline
+}
+
+fn (self: ^CommandView) dv_get_col_x_offset*(line, col: int): int {
+	text := self.doc.lines[line]
+	if len(text) == 0 { return 0 }
+	return renderer::font_get_width(self.dv_get_font(), slice(text, 0, col))
+}
+
+fn (self: ^CommandView) dv_draw_line_text*(idx: int, x, y: real) {
+	tx, ty := x, y + self.dv_get_line_text_y_offset()
+	font := self.dv_get_font()
+	for _, tok^ in self.doc.line_tokens(idx) {
+		color := style::syntax[tok.typ]
+		renderer::draw_text(font, tok.text, tx, ty, color)
+	}
+}
+
+fn (self: ^CommandView) dv_draw_line_body*(idx: int, x, y: real) {
+	sel, _ := self.doc.get_selection()
+	line, col := sel.a.line, sel.a.col
+	
+	// -- draw selection if it overlaps this line
+	sel, _ = self.doc.get_selection(true)
+	line1, col1, line2, col2 := sel.a.line, sel.a.col, sel.b.line, sel.b.col
+	if idx >= line1 && idx <= line2 {
+		text := self.doc.lines[idx]
+		if line1 != idx { col1 = 0 }
+		if line2 != idx { col2 = len(text) + 1 }
+		x1 := x + self.dv_get_col_x_offset(idx, col1)
+		x2 := x + self.dv_get_col_x_offset(idx, col2)
+		lh := self.dv_get_line_height()
+		renderer::fdraw_rect(x1, y, x2 - x1, lh, style::selection)
+	}
+
+	// -- draw line highlight if caret is on this line
+	is_av := self.is_active_view()
+	if config::highlight_current_line && !self.doc.has_selection() && line == idx && is_av {
+		self.draw_line_highlight(x + self.scroll.x, y)
+	}
+
+	// -- draw line's text
+	self.dv_draw_line_text(idx, x, y)
+
+	// -- draw caret if it overlaps this line
+	if line == idx && is_av && self.blink_timer < blink_period / 2 && system::window_has_focus() {
+		lh := self.dv_get_line_height()
+		x1 := x + self.dv_get_col_x_offset(line, col)
+		renderer::fdraw_rect(x1, y, style::caret_width, lh, style::caret)
+	}
+}
+
+fn (self: ^CommandView) dv_draw*() {
+	self.draw_background(style::background)
+
+	font := self.dv_get_font()
+	fw := renderer::font_get_width(font, " ")
+	renderer::font_set_tab_width(font, fw * config::indent_size)
+
+	minline, maxline := self.dv_get_visible_line_range()
+	lh := self.dv_get_line_height()
+
+	// NOTE is this function inherited or not?
+	// ny guess is not inherited because self is CommandView
+	_, y := self.get_line_screen_position(minline)
+	x := self.position.x
+	for i := minline; i <= maxline; i++ {
+		self.draw_line_gutter(i, x, y)
+		y = y + lh
+	}
+
+	x, y = self.get_line_screen_position(minline)
+	gw := self.get_gutter_width()
+	pos := self.position
+	cex::push_clip_rect(pos.x + gw, pos.y, self.size.x, self.size.y)
+	for i := minline; i <= maxline; i++ {
+		self.dv_draw_line_body(i, x, y)
+		y = y + lh
+	}
+	cex::pop_clip_rect()
+	self.draw_scrollbar()
+}
+
 fn (self: ^CommandView) draw*() {
-	self.dv.draw()
-	cex::defer_draw(fn() |self| {
+	self.dv_draw()
+	cex::rv_defer_draw(fn() |self| {
 		draw_suggestions_box(self)
 	})
 }
+
+fn (self: ^CommandView) enter*(text: str, submit: cex::SubmitFunc, suggest: cex::SuggestFunc, cancel: cex::CancelFunc) {
+	if self.state.filled {
+		return
+	}
+	self.state = {true, submit, suggest, cancel}
+	cex::set_active_view(self)
+	self.update_suggestions()
+	self.gutter_text_brightness = 100
+	self.label = text + ": "
+}
+
 

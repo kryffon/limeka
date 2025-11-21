@@ -10,6 +10,7 @@ import (
 	"logview.um"
 	"renderer.um"
 	"docview.um"
+	"env.um"
 )
 
 type Message* = struct {
@@ -19,7 +20,15 @@ type Message* = struct {
 }
 
 type StatusView* = struct {
-	view: view::View;
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+
+	// statusview
 	message: []Message;
 	message_timeout: real;
 }
@@ -27,31 +36,92 @@ type StatusView* = struct {
 separator  := "      "
 separator2 := "   |   "
 
-fn get_new*(): StatusView {
-	var self: StatusView
-	self.view = view::get_new()
+fn get_new*(): ^StatusView {
+	self := new(StatusView)
+	self.cursor = "arrow"
 	return self
 }
 
+fn (self: ^StatusView) get_debug*(): str {
+	return sprintf("StatusView p:%v s:%v", self.position, self.size)
+}
+
+fn (self: ^StatusView) try_close*(do_close: fn()) {
+	do_close()
+}
+
+fn (self: ^StatusView) get_name*(): str {
+	return "---"
+}
+
+fn (self: ^StatusView) get_cursor*(): str {
+	return self.cursor
+}
+
+fn (self: ^StatusView)	get_scrollable_size*(): real {
+	return env::INT_MAX
+}
+
+fn (self: ^StatusView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^StatusView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^StatusView) on_mouse_released*(button: str, x, y: real) {
+	view::on_mouse_released(&self.dragging_scrollbar)
+}
+
+fn (self: ^StatusView) on_mouse_moved*(x,y,dx,dy: real) {
+	view::on_mouse_moved(
+		&self.hovered_scrollbar, &self.dragging_scrollbar, self.position,
+		self.size, &self.scroll, self.get_scrollable_size(), x, y, dx, dy
+	)
+}
+
+fn (self: ^StatusView) on_text_input*(text: str) {}
+
+fn (self: ^StatusView) on_mouse_wheel*(y: real) {
+	view::on_mouse_wheel(self.scrollable, &self.scroll, y)
+}
+
+fn (self: ^StatusView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^StatusView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^StatusView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^StatusView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
+fn (self: ^StatusView) update*();
+fn (self: ^StatusView) draw*();
+
 fn is_active_log_view(): bool {
-	switch av := type(cex::active_view) {
-		case ^logview::LogView: return true
-	}
-	return false
+	var tmp: cex::View = logview::LogView{}
+	return selftypeeq(cex::active_view, tmp)
 }
 
 fn is_active_doc_view(): bool {
-	switch av := type(cex::active_view) {
-		case ^docview::DocView: return true
-	}
-	return false
+	var tmp: cex::View = docview::DocView{}
+	return selftypeeq(cex::active_view, tmp)
 }
 
-fn (self: ^StatusView) on_mouse_pressed*() {
+fn (self: ^StatusView) on_mouse_pressed*(button: str, x, y: real, clicks: int): bool {
 	cex::set_active_view(cex::last_active_view)
 	if system::get_time() < self.message_timeout && !is_active_log_view() {
 		command::perform("core:open-log")
 	}
+	return false
 }
 
 fn show_message*(self: ^StatusView, icon_color: renderer::Color, icon, text: str) {
@@ -64,30 +134,34 @@ fn show_message*(self: ^StatusView, icon_color: renderer::Color, icon, text: str
 }
 
 fn (self: ^StatusView) update*() {
-	self.view.size.y = renderer::font_get_height(style::font) + style::padding.y * 2
+	self.size.y = renderer::font_get_height(style::font) + style::padding.y * 2
 	if system::get_time() < self.message_timeout {
-		self.view.scroll.to.y = self.view.size.y
+		self.scroll.to.y = self.size.y
 	} else {
-		self.view.scroll.to.y = 0
+		self.scroll.to.y = 0
 	}
-	self.view.update()
+	view::update(self.get_scrollable_size(), self.size, &self.scroll)
 }
 
 fn (self: ^StatusView) draw_items*(items: []Message, right_align: bool = false, yoffset: real = 0) {
-	x, y := self.view.get_content_offset()
+	x, y := self.get_content_offset()
 	y = y + yoffset
 	if right_align {
 		w := 0.0
 		for _, msg^ in items {
 			w += renderer::font_get_width(msg.font, msg.text)
 		}
-		x = x + self.view.size.x - w - style::padding.x
+		x = x + self.size.x - w - style::padding.x
 	} else {
 		x = x + style::padding.x
 	}
 	for _, msg^ in items {
-		x = common::draw_text(msg.font, msg.color, msg.text, "", x, y, 0, self.view.size.y).item0
+		x = common::draw_text(msg.font, msg.color, msg.text, "", x, y, 0, self.size.y).item0
 	}
+}
+
+fn memusagestr(): str {
+	return sprintf("mem: %.1fMB", real(memusage())/(1024. * 1024.0)) + separator2
 }
 
 fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
@@ -107,6 +181,7 @@ fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
 			{(sel.a.col > config::line_limit)? style::accent : style::text, style::font, "col: " + col},
 			{style::text, style::font, separator + percent + "%"},
 		}, {
+			{style::text, style::font, memusagestr()},
 			{style::text, style::icon_font, "g"},
 			{style::dim, style::font, separator2},
 			{style::text, style::font, std::itoa(len(dv.doc.lines)) + " lines" + separator + ((dv.doc.crlf)? "CRLF" : "LF")},
@@ -114,6 +189,7 @@ fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
 	}
 
 	return {}, {
+		{style::text, style::font, memusagestr()},
 		{style::text, style::icon_font, "g"},
 		{style::dim, style::font, separator2 + std::itoa(len(cex::docs))},
 		{style::text, style::font, " / " + std::itoa(len(cex::project_files)) + " files"},
@@ -121,9 +197,9 @@ fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
 }
 
 fn (self: ^StatusView) draw*() {
-	self.view.draw_background(style::background2)
+	self.draw_background(style::background2)
 	if len(self.message) > 0 {
-		self.draw_items(self.message, false, self.view.size.y)
+		self.draw_items(self.message, false, self.size.y)
 	}
 	left, right := self.get_items()
 	self.draw_items(left)

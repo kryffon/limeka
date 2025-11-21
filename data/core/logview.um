@@ -1,39 +1,113 @@
 import (
+	"env.um"
 	"view.um"
 	"renderer.um"
 	"strings.um"
 	"cex.um"
 	"style.um"
+	"common.um"
 )
 
 type LogView* = struct {
-	view: view::View;
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+
+	// logview
 	last_item: cex::LogItem;
 	yoffset: real;
 }
 
-fn get_new*(): LogView {
-	var res: LogView
-	res.view = view::get_new()
-	res.last_item = cex::log_items[len(cex::log_items)-1]
-	res.view.scrollable = true
-	res.yoffset = 0
-	return res
+fn get_new*(): ^LogView {
+	self := new(LogView)
+	self.cursor = "arrow"
+	self.last_item = cex::log_items[len(cex::log_items)-1]
+	self.scrollable = true
+	self.yoffset = 0
+	return self
+}
+
+fn (self: ^LogView) get_debug*(): str {
+	return "LogView"
+}
+
+fn (self: ^LogView) try_close*(do_close: fn()) {
+	do_close()
 }
 
 fn (self: ^LogView) get_name*(): str {
 	return "Log"
 }
 
+fn (self: ^LogView) get_cursor*(): str {
+	return self.cursor
+}
+
+fn (self: ^LogView)	get_scrollable_size*(): real {
+	return env::INT_MAX
+}
+
+fn (self: ^LogView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^LogView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^LogView) on_mouse_pressed*(button: str, x, y: real, clicks: int): bool {
+	return view::on_mouse_pressed(self.get_scrollbar_rect(), &self.dragging_scrollbar, x, y)
+}
+
+fn (self: ^LogView) on_mouse_released*(button: str, x, y: real) {
+	view::on_mouse_released(&self.dragging_scrollbar)
+}
+
+fn (self: ^LogView) on_mouse_moved*(x,y,dx,dy: real) {
+	view::on_mouse_moved(
+		&self.hovered_scrollbar, &self.dragging_scrollbar, self.position,
+		self.size, &self.scroll, self.get_scrollable_size(), x, y, dx, dy
+	)
+}
+
+fn (self: ^LogView) on_text_input*(text: str) {}
+
+fn (self: ^LogView) on_mouse_wheel*(y: real) {
+	view::on_mouse_wheel(self.scrollable, &self.scroll, y)
+}
+
+fn (self: ^LogView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^LogView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^LogView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^LogView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
+fn (self: ^LogView) update*();
+fn (self: ^LogView) draw*();
+
 fn (self: ^LogView) update*() {
 	item := cex::log_items[len(cex::log_items)-1]
 	if self.last_item != item {
 		self.last_item = item
-		self.view.scroll.to.y = 0
+		self.scroll.to.y = 0
 		self.yoffset = -(renderer::font_get_height(style::font) + style::padding.y)
 	}
-	self.view.move_towards(&self.yoffset, 0)
-	self.view.update()
+	view::move_towards(&self.yoffset, 0)
+	view::update(self.get_scrollable_size(), self.size, &self.scroll)
 }
 
 fn draw_text_multiline(font: renderer::Font, text: str, x,y: real, color: renderer::Color): (real, real) {
@@ -48,9 +122,9 @@ fn draw_text_multiline(font: renderer::Font, text: str, x,y: real, color: render
 }
 
 fn (self: ^LogView) draw*() {
-	self.view.draw_background(style::background)
+	self.draw_background(style::background)
 
-	ox, oy := self.view.get_content_offset()
+	ox, oy := self.get_content_offset()
 	th := renderer::font_get_height(style::font)
 	y := oy + style::padding.y + self.yoffset
 

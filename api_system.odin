@@ -129,23 +129,20 @@ key_name :: proc(dst: []u8, sym: sdl.Keycode) -> cstring {
 	return cstring(raw_data(dst))
 }
 
-EventType :: enum i64 {
-	QUIT,
-	RESIZED,
-	EXPOSED,
-	FILEDROPPED,
-	KEYPRESSED,
-	KEYRELEASED,
-	TEXTINPUT,
-	MOUSEPRESSED,
-	MOUSERELEASED,
-	MOUSEMOVED,
-	MOUSEWHEEL,
-}
+QUIT :: "quit"
+RESIZED :: "resized"
+EXPOSED :: "exposed"
+FILEDROPPED :: "filedropped"
+KEYPRESSED :: "keypressed"
+KEYRELEASED :: "keyreleased"
+TEXTINPUT :: "textinput"
+MOUSEPRESSED :: "mousepressed"
+MOUSERELEASED :: "mousereleased"
+MOUSEMOVED :: "mousemoved"
+MOUSEWHEEL :: "mousewheel"
 
 Event :: struct {
-	type:       EventType,
-	s:          umka.Str,
+	type, s:    umka.Str,
 	x, y, w, z: f64,
 }
 
@@ -175,19 +172,23 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 
 	#partial switch (e.type) {
 	case .QUIT:
-		append(events, Event{type = .QUIT})
+		append(events, Event{type = umka.MakeStr(U, QUIT)})
 		return
 
 	case .WINDOWEVENT:
 		if (e.window.event == sdl.WindowEventID.RESIZED) {
 			append(
 				events,
-				Event{type = .RESIZED, x = f64(e.window.data1), y = f64(e.window.data2)},
+				Event {
+					type = umka.MakeStr(U, RESIZED),
+					x = f64(e.window.data1),
+					y = f64(e.window.data2),
+				},
 			)
 			return
 		} else if (e.window.event == sdl.WindowEventID.EXPOSED) {
 			rencache_invalidate()
-			append(events, Event{type = .EXPOSED})
+			append(events, Event{type = umka.MakeStr(U, EXPOSED)})
 			return
 		}
 		/* on some systems, when alt-tabbing to the window SDL will queue up
@@ -205,7 +206,7 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 		append(
 			events,
 			Event {
-				type = .FILEDROPPED,
+				type = umka.MakeStr(U, FILEDROPPED),
 				s = umka.MakeStr(U, e.drop.file),
 				x = f64(mx - wx),
 				y = f64(my - wy),
@@ -216,17 +217,17 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 
 	case .KEYDOWN:
 		kname := key_name(buf[:], e.key.keysym.sym)
-		append(events, Event{type = .KEYPRESSED, s = umka.MakeStr(U, kname)})
+		append(events, Event{type = umka.MakeStr(U, KEYPRESSED), s = umka.MakeStr(U, kname)})
 		return
 
 	case .KEYUP:
 		kname := key_name(buf[:], e.key.keysym.sym)
-		append(events, Event{type = .KEYRELEASED, s = umka.MakeStr(U, kname)})
+		append(events, Event{type = umka.MakeStr(U, KEYRELEASED), s = umka.MakeStr(U, kname)})
 		return
 
 	case .TEXTINPUT:
 		text := cstring(raw_data(e.text.text[:]))
-		append(events, Event{type = .TEXTINPUT, s = umka.MakeStr(U, text)})
+		append(events, Event{type = umka.MakeStr(U, TEXTINPUT), s = umka.MakeStr(U, text)})
 		return
 
 	case .MOUSEBUTTONDOWN:
@@ -236,7 +237,7 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 		append(
 			events,
 			Event {
-				type = .MOUSEPRESSED,
+				type = umka.MakeStr(U, MOUSEPRESSED),
 				s = umka.MakeStr(U, button_name(e.button.button)),
 				x = f64(e.button.x),
 				y = f64(e.button.y),
@@ -252,7 +253,7 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 		append(
 			events,
 			Event {
-				type = .MOUSERELEASED,
+				type = umka.MakeStr(U, MOUSERELEASED),
 				s = umka.MakeStr(U, button_name(e.button.button)),
 				x = f64(e.button.x),
 				y = f64(e.button.y),
@@ -264,7 +265,7 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 		append(
 			events,
 			Event {
-				type = .MOUSEMOVED,
+				type = umka.MakeStr(U, MOUSEMOVED),
 				x = f64(e.motion.x),
 				y = f64(e.motion.y),
 				w = f64(e.motion.xrel),
@@ -274,7 +275,7 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 		return
 
 	case .MOUSEWHEEL:
-		append(events, Event{type = .MOUSEWHEEL, x = f64(e.wheel.y)})
+		append(events, Event{type = umka.MakeStr(U, MOUSEWHEEL), x = f64(e.wheel.y)})
 		return
 
 	case:
@@ -303,9 +304,9 @@ cursor_enums := [?]sdl.SystemCursor {
 
 f_set_cursor :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	optstr := cstring(umka.GetParam(params, 0).ptrVal)
-	opt := sdl.SystemCursor.ARROW
+	opt := 0
 	for name, i in cursor_opts {
-		if name == optstr do opt = cursor_enums[i]
+		if name == optstr do opt = i
 	}
 	cursor_value := cursor_enums[opt]
 	n: i32 = cast(i32)cursor_value
@@ -578,14 +579,6 @@ f_fuzzy_match :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	}
 }
 
-f_lerp_uint8 :: proc "c" (params, result: ^umka.StackSlot) {
-	a := (^u8)(umka.GetParam(params, 0).ptrVal)
-	b := (^u8)(umka.GetParam(params, 1).ptrVal)
-	t := umka.GetParam(params, 2).realVal
-	c := (^u8)(umka.GetResult(params, result).ptrVal)
-	c^ = u8(f64(a^) + f64(b^ - a^) * t)
-}
-
 // odinfmt: disable
 @(private="file")
 regs := [?]FuncReg {
@@ -607,7 +600,6 @@ regs := [?]FuncReg {
   { "exec",                f_exec                },
   { "fuzzy_match",         f_fuzzy_match         },
   { "search_file_find",    f_search_file_find    },
-  { "lerp_uint8",          f_lerp_uint8          },
 }
 // odinfmt: enable
 

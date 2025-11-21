@@ -83,6 +83,9 @@ fn highlighter_thread*(self: ^Highlighter) {
 			resume()
 		} else {
 			mx := common::imin(self.first_invalid_line+40, self.max_wanted_line)
+			for mx >= len(self.lines) {
+				self.lines = append(self.lines, {})
+			}
 			for i:=self.first_invalid_line; i<=mx; i++ {
 				state := -1
 				if i > 0 && self.lines[i-1].valid {
@@ -104,7 +107,7 @@ fn get_new_highlighter*(doc: ^Doc): ^Highlighter {
 	self := new(Highlighter)
 	self.doc = doc
 	self.reset()
-	cex::add_thread(fn() |self| { highlighter_thread(self) })
+	cex::add_thread(fn() |self| { highlighter_thread(self) }, 1.0/config::fps)
 	return self
 }
 
@@ -113,18 +116,21 @@ fn (self: ^Highlighter) invalidate*(idx: int) {
 	self.max_wanted_line = common::imin(self.max_wanted_line, len(self.doc.lines)-1)
 }
 
-
 fn (self: ^Highlighter) get_line*(idx: int): LineTokens {
 	var res: LineTokens
 	if idx >= len(self.lines) || self.lines[idx].text != self.doc.lines[idx] {
 		prev_state := -1
-		if idx-1 >= 0 && self.lines[idx-1].valid {
+		if idx-1 >= 0 && idx-1 < len(self.lines) && self.lines[idx-1].valid {
 			prev_state = self.lines[idx-1].state
 		}
 		res = self.tokenize_line(idx, prev_state)
+		for idx >= len(self.lines) {
+			self.lines = append(self.lines, {})
+		}
+		self.lines[idx] = res
 	}
 	self.max_wanted_line = common::imax(self.max_wanted_line, idx)
-	return res
+	return self.lines[idx]
 }
 
 // doc
@@ -257,10 +263,10 @@ fn (self: ^Doc) position_offset_byte*(line, col, offset: int): (int, int) {
 	col = col + offset
 	for line > 0 && col < 0 {
 		line = line - 1
-		col = col + len(self.lines[line])-1
+		col = col + len(self.lines[line])
 	}
-	for line < len(self.lines) && col >= len(self.lines[line]) {
-		col = col - len(self.lines[line])-1
+	for line < len(self.lines)-1 && col >= len(self.lines[line]) {
+		col = col - len(self.lines[line])
 		line = line + 1
 	}
 	return self.sanitize_position(line, col)
@@ -297,6 +303,10 @@ fn (self: ^Doc) get_text*(line1, col1, line2, col2: int): str {
 	}
 	lines = append(lines, slice(self.lines[line2], 0, col2))
 	return strings::join(lines)
+}
+
+fn (self: ^Doc) get_text_sel*(sel: Selection): str {
+	return self.get_text(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
 }
 
 fn (self: ^Doc) get_char*(line, col: int): char {
@@ -525,10 +535,10 @@ fn (self: ^Doc) reset*() {
 }
 
 fn get_new*(filename: str): ^Doc {
-	var self: Doc
+	self := new(Doc)
 	self.reset()
 	if len(filename) != 0 {
 		self.load(filename)
 	}
-	return &self
+	return self
 }

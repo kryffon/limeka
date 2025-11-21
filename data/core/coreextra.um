@@ -5,6 +5,10 @@ import (
 	"renderer.um"
 	"style.um"
 	"config.um"
+	"common.um"
+	"env.um"
+	"strings.um"
+	"std.um"
 )
 
 type (
@@ -20,30 +24,80 @@ type (
 	SubmitFunc* = fn(text: str, item: ^Suggestion)
 	SuggestFunc* = fn(text: str): []str
 	CancelFunc* = fn(a: bool)
+
+	View* = interface {
+		get_debug(): str
+
+		try_close(do_close: fn())
+		get_name(): str
+		get_cursor(): str
+		get_scrollable_size(): real
+		get_scrollbar_rect(): common::Rect
+		scrollbar_overlaps_point(x, y: real): bool
+		on_mouse_pressed(button: str, x, y: real, clicks: int): bool
+		on_mouse_released(button: str, x, y: real)
+		on_mouse_moved(x, y, dx, dy: real)
+		on_text_input(text: str)
+		on_mouse_wheel(y: real)
+		get_content_bounds(): (common::Rect, ^common::Vec2, ^common::Vec2)
+		get_content_offset(): (real, real)
+		draw_background(color: renderer::Color)
+		draw_scrollbar()
+	
+		update()
+		draw()
+	}
+
+	Thread* = struct {
+		fib: fiber;
+		wake, wait: real;
+	}
 )
+
+// 	position, size: cex::Vec2;
+// 	scroll: cex::Scroll;
+// 	cursor: str;
+// 	scrollable: bool;
+// 	hovered_scrollbar: bool;
+// 	dragging_scrollbar: bool;
+
+// 	self.cursor = "arrow"
 
 var (
-	redraw*: bool = false
-	threads*: []fiber
+	frame_start*: real
+	clip_rect_stack*: []common::Rect
 	log_items*: []LogItem
-	active_view*: any
-	last_active_view*: any
-	deffered_draws*: []fn()
-	docs*: []any
-	project_files*: []any
+	docs*: []any;
+	threads*: []Thread
+	project_files*: []system::FileInfo
+	redraw*: bool = false
 
+	root_view*: View
+	command_view*: View
+	status_view*: View
+	
+	active_view*: View
+	last_active_view*: View
+
+	package_loaded*: map[str]any
+
+	temp_uid*: int
+	temp_file_prefix*: str
+	temp_file_counter*: int
+	quit_request*: bool
+	window_title*: str
+	
 	// NOTE this is awful
-	count_views_referencing_doc*: fn(a: str): int
+	count_views_referencing_doc*: fn(doc: any): int
 	command_view_enter*: fn(text: str, submit: SubmitFunc, suggest: SuggestFunc, cancel: CancelFunc)
-	push_clip_rect*: fn(x, y, w, h: real)
-	pop_clip_rect*: fn()
+	rv_defer_draw*: fn(f: fn())
 )
 
-fn add_thread*(f: fn()) {
-	threads = append(threads, make(fiber, f))
+fn add_thread*(f: fn(), wait: real) {
+	threads = append(threads, {fib: make(fiber, f), wait: wait})
 }
 
-fn core_log(icon: str, icon_color: renderer::Color, text: str): LogItem {
+fn core_log*(icon: str, icon_color: renderer::Color, text: str): LogItem {
 	if len(icon) != 0 {
 		// status_view:show_message(icon, icon_color, text)
 		printf("CORE_LOG %v\n", text)
@@ -61,7 +115,6 @@ fn core_log(icon: str, icon_color: renderer::Color, text: str): LogItem {
 	return item
 }
 
-
 fn log_info*(text: str): LogItem {
 	return core_log("i", style::text, text)
 }
@@ -70,13 +123,61 @@ fn log_quiet*(text: str): LogItem {
 	return core_log("", {}, text)
 }
 
-fn set_active_view*(view: any) {
+fn set_active_view*(view: View) {
 	if selfhasptr(view) && selfptr(view) != selfptr(active_view) {
 		last_active_view = active_view
 		active_view = view
 	}
 }
 
-fn defer_draw*(f: fn()) {
-	deffered_draws = append(deffered_draws, f)
+fn init_tmpfiles() {
+	temp_uid = floor(system::get_time() * 1000) % 0xffffffff
+	temp_file_prefix = sprintf(".lite_temp_%08x", temp_uid)
+	temp_file_counter = 0
+}
+
+fn temp_filename*(ext: str = ""): str {
+  temp_file_counter = temp_file_counter + 1
+  return env::EXEDIR + env::PATHSEP + temp_file_prefix + sprintf("%06x", temp_file_counter) + ext
+}
+
+fn delete_temp_files*() {
+	for _, fileinfo in system::list_dir(env::EXEDIR) {
+		if s,_,ok := strings::find(fileinfo.name, temp_file_prefix, 0, true); ok && s == 1 {
+			std::remove(env::EXEDIR + env::PATHSEP + fileinfo.name)
+		}
+	}
+}
+
+fn reload_module*(name: str) {
+	// old := package.loaded[name]
+	// package.loaded[name] = nil
+	// new := require(name)
+	// if type(old) == "table" {
+	// for k, v in pairs(new) do old[k] = v}
+	// package.loaded[name] = old
+	// }
+	// NOTE use system::reload, to compile and send back function pointers to use
+}
+
+fn push_clip_rect*(x, y, w, h: real) {
+	cr := clip_rect_stack[len(clip_rect_stack)-1]
+	x2, y2, w2, h2 := cr.x, cr.y, cr.w, cr.h
+	r, b, r2, b2 := x+w, y+h, x2+w2, y2+h2
+	x, y = common::fmax(x, x2), common::fmax(y, y2)
+	b, r = common::fmin(b, b2), common::fmin(r, r2)
+	w, h = r-x, b-y
+	clip_rect_stack = append(clip_rect_stack, { x, y, w, h })
+	renderer::fset_clip_rect(x, y, w, h)
+}
+
+fn pop_clip_rect*() {
+	clip_rect_stack = delete(clip_rect_stack, len(clip_rect_stack)-1)
+	cr := clip_rect_stack[len(clip_rect_stack)-1]
+	x, y, w, h := cr.x, cr.y, cr.w, cr.h
+	renderer::fset_clip_rect(x, y, w, h)
+}
+
+fn init*() {
+	init_tmpfiles()
 }

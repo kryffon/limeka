@@ -5,13 +5,20 @@ import (
 	"system.um"
 )
 
-type Vec2* = struct {
-	x, y: real;
-}
+type (
+	Vec2* = struct {
+		x, y: real;
+	}
 
-type Rect* = struct {
-	x,y,w,h: real;
-}
+	Rect* = struct {
+		x,y,w,h: real;
+	}
+
+	Scroll* = struct {
+		x, y: real;
+		to: Vec2;
+	}
+)
 
 fn imin*(a, b: int): int {
 	return (a<b)?a:b
@@ -47,6 +54,7 @@ fn utf8_chars*(text: str): []str {
 	pattern += char(0xbf)
 	pattern += "]*"
 	// matches := strings::gmatch(text, "[\x00-\x7f\xc2-\xf4][\x80-\xbf]*")
+	// error: unterminated string
 	matches := strings::gmatch(text, pattern)
 	res := make([]str, len(matches))
 	for i, m in matches {
@@ -88,13 +96,19 @@ fn lerp_arr*(a, b: []real, t: real): []real {
 	return c
 }
 
+fn lerp_uint8(a, b: uint8, t: real): uint8 {
+	c := flerp(a, b, t)
+	d := round(fclamp(c, 0, 255))
+	return uint8(d)
+}
+
 fn lerp_color*(a, b: renderer::Color, t: real): renderer::Color {
 	t = fclamp(t, 0.0, 1.0)
 	return renderer::Color{
-		r: system::lerp_uint8(a.r, b.r, t),
-		g: system::lerp_uint8(a.g, b.g, t),
-		b: system::lerp_uint8(a.b, b.b, t),
-		a: system::lerp_uint8(a.a, b.a, t),
+		r: lerp_uint8(a.r, b.r, t),
+		g: lerp_uint8(a.g, b.g, t),
+		b: lerp_uint8(a.b, b.b, t),
+		a: lerp_uint8(a.a, b.a, t),
 	}
 }
 

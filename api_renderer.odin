@@ -41,6 +41,15 @@ f_set_clip_rect :: proc "c" (params, result: ^umka.StackSlot) {
 	rencache_set_clip_rect(rect)
 }
 
+Color :: struct {
+	r, g, b, a: u8,
+}
+
+color2rencolor :: proc(c: ^Color, def: u8 = 255) -> RenColor {
+	if c == nil do return {def, def, def, 255}
+	return {c.b, c.g, c.r, c.a}
+}
+
 f_draw_rect :: proc "c" (params, result: ^umka.StackSlot) {
 	context = runtime.default_context()
 	rect: RenRect
@@ -48,19 +57,22 @@ f_draw_rect :: proc "c" (params, result: ^umka.StackSlot) {
 	rect.y = i32(umka.GetParam(params, 1).intVal)
 	rect.width = i32(umka.GetParam(params, 2).intVal)
 	rect.height = i32(umka.GetParam(params, 3).intVal)
-	color := (^RenColor)(umka.GetParam(params, 4).ptrVal)
-	rencache_draw_rect(rect, color^)
+	color := (^Color)(umka.GetParam(params, 4))
+	rencache_draw_rect(rect, color2rencolor(color))
 }
 
 f_draw_text :: proc "c" (params, result: ^umka.StackSlot) {
 	context = runtime.default_context()
-	font := (^^RenFont)(umka.GetParam(params, 0).ptrVal)
+	font := fonts[umka.GetParam(params, 0).intVal]
 	text := cstring(umka.GetParam(params, 1).ptrVal)
 	x := umka.GetParam(params, 2).realVal
 	y := umka.GetParam(params, 3).realVal
-	color := (^RenColor)(umka.GetParam(params, 4).ptrVal)
+	color := (^Color)(umka.GetParam(params, 4))
 
-	r := rencache_draw_text(font^, text, int(x), int(y), color^)
+	r := 0
+	if text != nil {
+		r = rencache_draw_text(font, text, int(x), int(y), color2rencolor(color))
+	}
 	umka.GetResult(params, result).intVal = i64(r)
 }
 

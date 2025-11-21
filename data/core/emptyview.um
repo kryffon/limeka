@@ -1,0 +1,113 @@
+import (
+	"view.um"
+	"env.um"
+	"common.um"
+	"renderer.um"
+	"style.um"
+	"keymap.um"
+)
+
+type EmptyView* = struct {
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+}
+
+fn (self: ^EmptyView) get_debug*(): str {
+	return "EmptyView"
+}
+
+fn (self: ^EmptyView) try_close*(do_close: fn()) {
+	do_close()
+}
+
+fn (self: ^EmptyView) get_name*(): str {
+	return "---"
+}
+
+fn (self: ^EmptyView) get_cursor*(): str {
+	return self.cursor
+}
+
+fn (self: ^EmptyView)	get_scrollable_size*(): real {
+	return env::INT_MAX
+}
+
+fn (self: ^EmptyView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^EmptyView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^EmptyView) on_mouse_pressed*(button: str, x, y: real, clicks: int): bool {
+	return view::on_mouse_pressed(self.get_scrollbar_rect(), &self.dragging_scrollbar, x, y)
+}
+
+fn (self: ^EmptyView) on_mouse_released*(button: str, x, y: real) {
+	view::on_mouse_released(&self.dragging_scrollbar)
+}
+
+fn (self: ^EmptyView) on_mouse_moved*(x,y,dx,dy: real) {
+	view::on_mouse_moved(
+		&self.hovered_scrollbar, &self.dragging_scrollbar, self.position,
+		self.size, &self.scroll, self.get_scrollable_size(), x, y, dx, dy
+	)
+}
+
+fn (self: ^EmptyView) on_text_input*(text: str) {}
+
+fn (self: ^EmptyView) on_mouse_wheel*(y: real) {
+	view::on_mouse_wheel(self.scrollable, &self.scroll, y)
+}
+
+fn (self: ^EmptyView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^EmptyView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^EmptyView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^EmptyView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
+fn (self: ^EmptyView) update*() {}
+
+fn draw_text(x, y: real, color: renderer::Color): (real, real) {
+	th := renderer::font_get_height(style::big_font)
+	dh := th + style::padding.y * 2
+	x = renderer::draw_text(style::big_font, "lite", x, y + (dh - th) / 2, color)
+	x = x + style::padding.x
+	renderer::fdraw_rect(x, y, ceil(1 * env::SCALE), dh, color)
+	lines := []str{
+		sprintf("%s to run a command", keymap::get_binding("core:find-command")),
+		sprintf("%s to open a file from the project", keymap::get_binding("core:find-file")),
+	}
+	th = renderer::font_get_height(style::font)
+	y = y + (dh - th * 2 - style::padding.y) / 2
+	w := 0.0
+	for _, text in lines {
+		w = common::fmax(w, renderer::draw_text(style::font, text, x + style::padding.x, y, color))
+		y = y + th + style::padding.y
+	}
+	return w, dh
+}
+
+fn (self: ^EmptyView) draw*() {
+	self.draw_background(style::background)
+	w, h := draw_text(0, 0, { 0, 0, 0, 0 })
+	x := self.position.x + common::fmax(style::padding.x, (self.size.x - w) / 2)
+	y := self.position.y + (self.size.y - h) / 2
+	draw_text(x, y, style::dim)
+}

@@ -5,41 +5,9 @@ import (
 	"common.um"
 	"config.um"
 	"cex.um"
-	"keymap.um"
 )
 
-type Vec2 = common::Vec2
-
-type View* = struct {
-	empty: bool;
-	position: Vec2;
-	size: Vec2;
-	scroll: struct {
-		x,y: real;
-		to: Vec2;
-	};
-	cursor: str;
-	scrollable: bool;
-	hovered_scrollbar: bool;
-	dragging_scrollbar: bool;
-}
-
-fn get_new*(empty: bool = false): ^View {
-	self := new(View)
-	self.empty = empty
-	self.cursor = "arrow"
-	return self
-}
-
-fn (self: ^View) get_name*():str {
-	return "---"
-}
-
-fn (self: ^View) get_scrollable_size*(): int {
-	return env::INT_MAX
-}
-
-fn (self: ^View) move_towards*(val: ^real, dest: real, rate: real = 0.5) {
+fn move_towards*(val: ^real, dest: real, rate: real = 0.5) {
 	res := val^
 	if fabs(val^ - dest) < 0.5 {
 		res = dest
@@ -52,113 +20,84 @@ fn (self: ^View) move_towards*(val: ^real, dest: real, rate: real = 0.5) {
 	val^ = res
 }
 
-fn (self: ^View) get_scrollbar_rect*(): common::Rect {
-	sz := self.get_scrollable_size()
-	if sz <= self.size.y || sz == env::INT_MAX {
+// sz = get_scrollbar_size
+fn get_scrollbar_rect*(sz: real, position, size: common::Vec2, scroll: common::Scroll): common::Rect {
+	if sz <= size.y || sz == env::INT_MAX {
 		return {}
 	}
-	h := self.size.y *self.size.y / sz
+	h := size.y * size.y / sz
 	h = (h > 20.0)? h : 20.0
 	return {
-    	x: self.position.x + self.size.x - style::scrollbar_size,
-    	y: self.position.y + self.scroll.y * (self.size.y - h) / (sz - self.size.y),
+    	x: position.x + size.x - style::scrollbar_size,
+    	y: position.y + scroll.y * (size.y - h) / (sz - size.y),
     	w: style::scrollbar_size,
 	    h: h,
 	}
 }
 
-fn (self: ^View) scrollbar_overlaps_point*(x, y: real): bool {
-	s := self.get_scrollbar_rect()
+// s := get_scrollbar_rect(self)
+fn scrollbar_overlaps_point*(s: common::Rect, x, y: real): bool {
 	return x >= s.x - s.w * 3.0 && x < s.x + s.w && y >= s.y && y < s.y + s.h
 }
 
-fn (self: ^View) on_mouse_pressed*(x, y: real): bool {
-	if self.scrollbar_overlaps_point(x, y) {
-		self.dragging_scrollbar = true
+// s := get_scrollbar_rect(self)
+// dragging = &self.dragging
+fn on_mouse_pressed*(s: common::Rect, dragging: ^bool, x, y: real): bool {
+	if scrollbar_overlaps_point(s, x, y) {
+		dragging^ = true
 		return true
 	}
 	return false
 }
 
-fn (self: ^View) on_mouse_released*() {
-	self.dragging_scrollbar = false
+fn on_mouse_released*(dragging: ^bool) {
+	dragging^ = false
 }
 
-fn (self: ^View) on_mouse_moved*(x,y,dx,dy: real) {
-	if self.dragging_scrollbar {
-		delta := self.get_scrollable_size() / self.size.y*dy
-		self.scroll.to.y = self.scroll.to.y + delta
+fn on_mouse_moved*(hovered, dragging: ^bool, position, size: common::Vec2, scroll: ^common::Scroll, sz,x,y,dx,dy: real) {
+	if dragging^ {
+		delta := sz / size.y*dy
+		scroll.to.y = scroll.to.y + delta
 	}
-	self.hovered_scrollbar = self.scrollbar_overlaps_point(x,y)
+	s := get_scrollbar_rect(sz, position, size, scroll^)
+	hovered^ = scrollbar_overlaps_point(s, x,y)
 }
 
-fn (self: ^View) on_mouse_wheel*(y: real) {
-	if self.scrollable {
-	    self.scroll.to.y = self.scroll.to.y + y * (-config::mouse_wheel_scroll)
+fn on_mouse_wheel*(scrollable: bool, scroll: ^common::Scroll, y: real) {
+	if scrollable {
+	    scroll.to.y = scroll.to.y + y * (-config::mouse_wheel_scroll)
 	}
 }
 
-fn (self: ^View) get_content_bounds*(): common::Rect {
-	x := self.scroll.x
-	y := self.scroll.y
-	return {x, y, x + self.size.x, y + self.size.y}
+fn get_content_bounds*(size: common::Vec2, scroll: common::Scroll): common::Rect {
+	x := scroll.x
+	y := scroll.y
+	return {x, y, x + size.x, y + size.y}
 }
 
-fn (self: ^View) get_content_offset*(): (real, real) {
-	x := round(self.position.x - self.scroll.x)
-	y := round(self.position.y - self.scroll.y)
+fn get_content_offset*(position: common::Vec2, scroll: common::Scroll): (real, real) {
+	x := round(position.x - scroll.x)
+	y := round(position.y - scroll.y)
 	return x, y
 }
 
-fn (self: ^View) clamp_scroll_position*() {
-	max := self.get_scrollable_size() - self.size.y
-	self.scroll.to.y = common::fclamp(self.scroll.to.y, 0, max)
+fn update*(sz: real, size: common::Vec2, scroll: ^common::Scroll) {
+	max := sz - size.y
+	scroll.to.y = common::fclamp(scroll.to.y, 0, max)
+	move_towards(&scroll.x, scroll.to.x, 0.3)
+	move_towards(&scroll.y, scroll.to.y, 0.3)
 }
 
-fn (self: ^View) update*() {
-	self.clamp_scroll_position()
-	self.move_towards(&self.scroll.x, self.scroll.to.x, 0.3)
-	self.move_towards(&self.scroll.y, self.scroll.to.y, 0.3)
+fn draw_background*(position, size: common::Vec2, color: renderer::Color) {
+	x, y := position.x, position.y
+	w, h := size.x, size.y
+	renderer::fdraw_rect(x, y, w + x % 1, h + y % 1, color)
 }
 
-fn (self: ^View) draw_background*(color: renderer::Color) {
-	x, y := round(self.position.x), round(self.position.y)
-	w, h := round(self.size.x), round(self.size.y)
-	renderer::draw_rect(x, y, w + x % 1, h + y % 1, color)
-}
-
-fn (self: ^View) draw_scrollbar*() {
-	s := self.get_scrollbar_rect()
-	highlight := self.hovered_scrollbar || self.dragging_scrollbar
+// s := get_scrollbar_rect(self)
+fn draw_scrollbar*(s: common::Rect, hovered, dragging: bool) {
+	highlight := hovered || dragging
 	color := (highlight)? style::scrollbar2 : style::scrollbar
-	renderer::draw_rect(round(s.x), round(s.y), round(s.w), round(s.h), color)
+	renderer::fdraw_rect(s.x, s.y, s.w, s.h, color)
 }
 
-fn draw_text(x, y: real, color: renderer::Color): (real, real) {
-	th := renderer::font_get_height(style::big_font)
-	dh := th + style::padding.y * 2
-	x = renderer::draw_text(style::big_font, "lite", x, y + (dh - th) / 2, color)
-	x = x + style::padding.x
-	renderer::fdraw_rect(x, y, ceil(1 * env::SCALE), dh, color)
-	lines := []str{
-		sprintf("%s to run a command", keymap::get_binding("core:find-command")),
-		sprintf("%s to open a file from the project", keymap::get_binding("core:find-file")),
-	}
-	th = renderer::font_get_height(style::font)
-	y = y + (dh - th * 2 - style::padding.y) / 2
-	w := 0.0
-	for _, text in lines {
-		w = common::fmax(w, renderer::draw_text(style::font, text, x + style::padding.x, y, color))
-		y = y + th + style::padding.y
-	}
-	return w, dh
-}
-
-fn (self: ^View) draw*() {
-	if !self.empty { return }
-	self.draw_background(style::background)
-	w, h := draw_text(0, 0, { 0, 0, 0, 0 })
-	x := self.position.x + common::fmax(style::padding.x, (self.size.x - w) / 2)
-	y := self.position.y + (self.size.y - h) / 2
-	draw_text(x, y, style::dim)
-}

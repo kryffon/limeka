@@ -1,4 +1,4 @@
-type Font* = ^void
+type Font* = int
 
 fn font_load*(filename: str, size: real): Font
 fn font_set_tab_width*(font: Font, w: int)
@@ -19,5 +19,9 @@ fn draw_rect*(x,y,w,h: int, color: Color)
 fn draw_text*(font: Font, text: str, x,y: real, color: Color): int
 	
 fn fdraw_rect*(x, y, w, h: real, color: Color) {
-	draw_rect(round(x), round(y), round(w), round(h), color)
+ 	draw_rect(round(x), round(y), round(w), round(h), color)
+}
+
+fn fset_clip_rect*(x, y, w, h: real) {
+	set_clip_rect(round(x), round(y), round(w), round(h))
 }	

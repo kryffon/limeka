@@ -1,0 +1,366 @@
+import (
+	"std.um"
+	"env.um"
+	"strings.um"
+	"system.um"
+	"renderer.um"
+	"config.um"
+	"common.um"
+	"style.um"
+	"doc.um"
+	"command.um"
+	"keymap.um"
+	"docview.um"
+	"commandview.um"
+	"statusview.um"
+	"rootview.um"
+	"commandutils.um"
+	"cex.um"
+)
+
+fn diff_files(a, b: []system::FileInfo): bool  {
+	if len(a) != len(b) { return true}
+	for i, v in a {
+		if b[i].name != v.name || b[i].modified != v.modified {
+			return true
+	 	}
+	}
+	return false
+}
+
+// fn compare_file(a, b: cex::ProjectFile): bool {
+// 	return a.filename < b.filename
+// }
+
+fn get_files(path: str, t: []system::FileInfo) {
+	size_limit := config::file_size_limit * 10e5
+	all := system::list_dir(path)
+	dirs, files := make([]system::FileInfo, 0), make([]system::FileInfo, 0)
+	for _, info in all {
+		if !common::match_pattern(info.name, []str{config::ignore_files}).item2 {
+			// info.name = ((path != ".")? path + env::PATHSEP : "") + info.name
+			if info.size < size_limit {
+				if info.is_dir {
+					dirs = append(dirs, info)
+				} else {
+					files = append(files, info)
+				}
+			}
+		}
+	}
+	// table.sort(dirs, compare_file)
+	for _, f in dirs {
+		t = append(t, f)
+		get_files(f.name, t)
+	}
+	// table.sort(files, compare_file)
+	for _, f in files {
+		t = append(t, f)
+	}
+}
+
+fn project_scan_thread() {
+	for true {
+	//   -- get project files and replace previous table if the new table is
+	//   -- different
+		t := make([]system::FileInfo, 0)
+		get_files(".", t)
+		if diff_files(cex::project_files, t) {
+			cex::project_files = t
+			cex::redraw = true
+		}
+		resume()
+	 }
+}
+
+// fn cv(): ^commandview::CommandView { return ^commandview::CommandView(v) }
+// fn dv(): ^docview::DocView { return ^docview::DocView(v) }
+fn rv(): ^rootview::RootView { return ^rootview::RootView(cex::root_view) }
+// fn sv(v: cex::View): ^statusview::StatusView { return ^statusview::StatusView(v) }
+// fn lv(v: cex::View): ^logview::LogView { return ^logview::LogView(v) }
+
+fn load_plugins(): bool {
+	no_errors := true
+	files := system::list_dir(env::EXEDIR + "/data/plugins")
+	for _, info in files {
+		modname := "plugins." + strings::gsub(info.name, ".um$", "")
+		ok := true // NOTE state::core.try(require, modname)
+		if ok {
+			cex::log_quiet("Loaded plugin " + modname)
+		} else {
+			no_errors = false
+		}
+	}
+	return no_errors
+}
+
+fn load_project_module(): bool {
+	// filename := ".lite_project.lua"
+	// if system.get_file_info(filename) {
+	// return state::core.try(function()
+	// fn, err := loadfile(filename)
+	// if not fn { error("Error when loading project module:\n\t" .. err)}
+	// fn()
+	// state::core.log_quiet("Loaded project module")
+	// })
+	// }
+	return true
+}
+
+fn count_views_referencing_doc(d: any): int {
+	ddoc := ^doc::Doc(d)
+	count := 0
+	views := make([]cex::View, 0)
+	views = rv().root_node.get_children(views)
+	for _, view in views {
+		switch v := type(view) {
+			case ^docview::DocView: if v.doc == ddoc { count ++ }
+		}
+	}
+	return count
+}
+
+fn init*() {
+	style::load_default_style()
+	commandutils::load_default_commands()
+	keymap::add_default_keymaps()
+	cex::init()
+	cex::command_view_enter = fn(text: str, submit: cex::SubmitFunc, suggest: cex::SuggestFunc, cancel: cex::CancelFunc) {
+		cv := ^commandview::CommandView(cex::command_view)
+		cv.enter(text, submit, suggest, cancel)
+	}
+	cex::count_views_referencing_doc = count_views_referencing_doc
+	cex::rv_defer_draw = fn(f: fn()) {
+		rv().defer_draw(f)
+	}
+
+	// test()
+	project_dir := env::EXEDIR
+	files := make([]str, 0)
+	for i := 1; i < std::argc(); i++ {
+		info, ok := system::get_file_info(std::argv(i))
+		if !ok { continue }
+		if info.is_dir {
+			project_dir = std::argv(i)
+		} else {
+			if apath, ok2 := system::absolute_path(std::argv(i)); ok2 {
+				files = append(files, apath)
+			}
+		}
+	}
+
+	system::chdir(project_dir)
+
+	cex::clip_rect_stack = append(cex::clip_rect_stack, {})
+	cex::redraw = true
+	cex::root_view = rootview::get_new()
+	cex::command_view = commandview::get_new()
+	cex::status_view = statusview::get_new()
+
+	rv().root_node.split("down", cex::command_view, true)
+	rv().root_node.b.split("down", cex::status_view, true)
+
+	cex::add_thread(project_scan_thread, config::project_scan_rate)
+	// command::add_defaults()
+
+	got_plugin_error := !load_plugins()
+	got_user_error := false //!try(require, "user")
+	got_project_error := !load_project_module()
+
+	for _, filename in files {
+		rv().open_doc(commandutils::open_doc(filename))
+	}
+	if got_plugin_error || got_user_error || got_project_error {
+		command::perform("core:open-log")
+	}
+	printf("CORE INITIALIZED\n")
+}
+
+// fn error(text: str) {
+// 	cex::core_log("!", style::accent, text)
+// }
+
+// fn try(fn, ...) {
+// 	local err
+// 	 ok, res := xpcall(fn, function(msg)
+// 		 item := state::core.error("%s", msg)
+// 		item.info = debug.traceback(nil, 2):gsub("\t", "")
+// 		err = msg
+//  }, ...)
+// 	if ok {
+// 		return true, res
+//  }
+// 	return false, err
+// }
+
+fn open_file_dropped(filename: str, mx, my: real) {
+	info, ok := system::get_file_info(filename)
+	if !ok { return }
+	if info.is_dir {
+		system::exec(sprintf("%s %s", env::EXEFILE, filename))
+	} else {
+		d := commandutils::open_doc(filename)
+		node := rv().root_node.get_child_overlapping_point(mx, my)
+		node.set_active_view(node.active_view)
+		rv().open_doc(d)
+	}
+}
+
+fn on_event(typ, s: str, a, b, c, d: real): bool {
+	did_keymap := false
+	if typ == "textinput" {
+		rv().on_text_input(s)
+	} else if typ == "keypressed" {
+		did_keymap = keymap::on_key_pressed(s)
+	} else if typ == "keyreleased" {
+		keymap::on_key_released(s)
+	} else if typ == "mousemoved" {
+		rv().on_mouse_moved(a, b, c, d)
+	} else if typ == "mousepressed" {
+		rv().on_mouse_pressed(s, a, b, round(c))
+	} else if typ == "mousereleased" {
+		rv().on_mouse_released(s, a, b)
+	} else if typ == "mousewheel" {
+		rv().on_mouse_wheel(a)
+	} else if typ == "filedropped" {
+		open_file_dropped(s, a, b)
+	} else if typ == "quit" {
+		commandutils::quit()
+	}
+	return did_keymap
+}
+
+fn raw_log(t: str) {
+	printf("[%v] %s\n", system::get_time(), t)
+}
+
+type Mouse = struct {
+	x,y,dx,dy: real;
+}
+
+fn step(): bool {
+	// -- handle events
+	var (
+		did_keymap: bool = false
+		mouse_moved: bool = false
+		mouse: Mouse
+	)
+	// raw_log("\tPOLLEVENTS")
+	events := system::poll_event()
+	
+	for _, e^ in events {
+		if e.etype == "mousemoved" {
+			mouse_moved = true
+			mouse.x, mouse.y = e.a, e.b
+			mouse.dx, mouse.dy = mouse.dx + e.c, mouse.dy + e.d
+		} else if e.etype == "textinput" && did_keymap {
+			did_keymap = false
+		} else {
+			// NOTE use try here
+			res := on_event(e.etype, e.s, e.a, e.b, e.c, e.d)
+			did_keymap = res || did_keymap
+		}
+		cex::redraw = true
+	}
+	// raw_log("\tMOUSEMOVED")
+	if mouse_moved {
+		// NOTE use try
+		on_event("mousemoved", "", mouse.x, mouse.y, mouse.dx, mouse.dy)
+	}
+	// raw_log("\tUPDATE")
+
+	width, height := renderer::get_size()
+	// -- update
+	rv().size = {width, height}
+	rv().update()
+	if !cex::redraw { return false }
+	cex::redraw = false
+
+	// raw_log("\tCLOSE_DOCS")
+	// -- close unreferenced docs
+	for i := len(cex::docs)-1; i >=0 ; i-- {
+		d := ^doc::Doc(cex::docs[i])
+		if count_views_referencing_doc(d) == 0 {
+			cex::docs = delete(cex::docs, i)
+			cex::log_quiet(sprintf("Closed doc \"%s\"", d.get_name()))
+		}
+	}
+
+	// raw_log("\tTITLE")
+	// -- update window title
+	name := cex::active_view.get_name()
+	title := (name != "---")? (name + " - lite") :  "lite"
+	if title != cex::window_title {
+		system::set_window_title(title)
+		cex::window_title = title
+	}
+
+
+	// raw_log("\tDRAW")
+	// -- draw
+	renderer::begin_frame()
+	cex::clip_rect_stack[0] = { 0, 0, width, height }
+	renderer::set_clip_rect(0, 0, width, height)
+	rv().draw()
+	renderer::end_frame()
+	return true
+}
+
+fn run_threads() {
+	// this runs in main thread
+	max_time := 1.0 / config::fps - 0.004
+	// ran_any_threads := false
+
+	for k := len(cex::threads)-1; k>=0; k-- {
+		thread := &cex::threads[k]
+		if valid(thread.fib) {
+			if thread.wake < system::get_time() {
+				resume(thread.fib)
+				thread.wake = system::get_time() + thread.wait
+				// ran_any_threads = true
+			}
+		} else {
+			cex::threads = delete(cex::threads, k)
+		}
+
+		//     -- stop running threads if we're about to hit the} of frame
+		if system::get_time() - cex::frame_start > max_time {
+			return
+		}
+	}
+	// if !ran_any_threads { resume() }
+}
+
+fn run*() {
+	for true {
+		raw_log("RUN")
+		printf("ACTIVE %s\n", cex::active_view.get_debug())
+		if cex::quit_request {
+			break
+		}
+		cex::frame_start = system::get_time()
+		did_redraw := step()
+		// raw_log("STEP")
+		run_threads()
+		if !did_redraw && !system::window_has_focus() {
+			system::wait_event(0.25)
+		}
+		elapsed := system::get_time() - cex::frame_start
+		system::sleep(common::fmax(0.0, 1.0 / config::fps - elapsed))
+	}
+}
+
+// fn on_error(err) {
+// 	// -- write error to file
+// 	fp := io.open(EXEDIR .. "/error.txt", "wb")
+// 	fp:write("Error: " .. tostring(err) .. "\n")
+// 	fp:write(debug.traceback(nil, 4))
+// 	fp:close()
+// 	// -- save copy of all unsaved documents
+// 	for _, doc in ipairs(state::core.docs) do
+// 		if doc:is_dirty() and doc.filename {
+// 			doc:save(doc.filename .. "~")
+// 		}
+// 	}
+// }
+

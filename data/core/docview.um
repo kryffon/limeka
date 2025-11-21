@@ -18,7 +18,15 @@ type Offset* = struct {
 }
 
 type DocView* = struct {
-	view: view::View;
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+
+	// docview
 	last_x_offset: Offset;
 	doc: ^doc::Doc;
 	font: str;
@@ -32,19 +40,80 @@ type DocView* = struct {
 
 blink_period := 0.8
 
-fn get_new*(doc: ^doc::Doc): DocView {
-	var self: DocView
-	self.view = view::get_new()
-	self.view.cursor = "ibeam"
-	self.view.scrollable = true
+fn get_new*(doc: ^doc::Doc): ^DocView {
+	self := new(DocView)
+	self.cursor = "ibeam"
+	self.scrollable = true
 	self.doc = doc
 	self.font = "code_font"
 	return self
 }
 
+fn (self: ^DocView) get_debug*(): str {
+	return "DocView"
+}
+
+fn (self: ^DocView) get_name*(): str {
+	post := (self.doc.is_dirty())? "*" : ""
+	name := self.doc.get_name()
+	m := strings::match(name, "[^/%\\]*$")
+	return m[0] + post
+}
+
+fn (self: ^DocView) get_cursor*(): str {
+	return self.cursor
+}
+
+fn (self: ^DocView) get_font*(): renderer::Font {
+	if self.font == "big_font" {
+		return style::big_font
+	} else if self.font == "code_font" {
+		return style::code_font
+	} else if self.font == "icon_font" {
+		return style::icon_font
+	}
+	return style::font
+}
+
+fn (self: ^DocView) get_line_height*(): real {
+	// NOTE check if font_height needs a floor
+	return renderer::font_get_height(self.get_font()) * config::line_height
+}
+
+fn (self: ^DocView) get_scrollable_size*(): real {
+	 return self.get_line_height() * real(len(self.doc.lines) - 1) + self.size.y
+}
+
+fn (self: ^DocView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^DocView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^DocView) on_mouse_wheel*(y: real) {
+	view::on_mouse_wheel(self.scrollable, &self.scroll, y)
+}
+
+fn (self: ^DocView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^DocView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^DocView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^DocView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
 fn (self: ^DocView) try_close*(do_close: fn()) {
-	add := sprintf("%v", self.doc)
-	if self.doc.is_dirty() && cex::count_views_referencing_doc(add) == 1 {
+	if self.doc.is_dirty() && cex::count_views_referencing_doc(self.doc) == 1 {
 		submit := fn(_: str, item: ^cex::Suggestion) |self, do_close| {
 			if matches := strings::match(item.text, "^[cC]"); len(matches) > 0 {
 				do_close()
@@ -70,40 +139,13 @@ fn (self: ^DocView) try_close*(do_close: fn()) {
 	}
 }
 
-fn (self: ^DocView) get_name*(): str {
-	post := (self.doc.is_dirty())? "*" : ""
-	name := self.doc.get_name()
-	m := strings::match(name, "[^/%\\]*$")
-	return m[0] + post
-}
-
-fn (self: ^DocView) get_font*(): renderer::Font {
-	if self.font == "big_font" {
-		return style::big_font
-	} else if self.font == "code_font" {
-		return style::code_font
-	} else if self.font == "icon_font" {
-		return style::icon_font
-	}
-	return style::font
-}
-
-fn (self: ^DocView) get_line_height*(): real {
-	// NOTE check if font_height needs a floor
-	return renderer::font_get_height(self.get_font()) * config::line_height
-}
-
-fn (self: ^DocView) get_scrollable_size*(): real {
-	 return self.get_line_height() * real(len(self.doc.lines) - 1) + self.view.size.y
-}
-
 fn (self: ^DocView) get_gutter_width*(): real {
 	fw := renderer::font_get_width(self.get_font(), sprintf("%d", len(self.doc.lines)))
 	return real(fw) + style::padding.x * 2
 }
 
 fn (self: ^DocView) get_line_screen_position*(idx: int): (real, real) {
-	x, y := self.view.get_content_offset()
+	x, y := self.get_content_offset()
 	lh := self.get_line_height()
 	gw := self.get_gutter_width()
 	return x + gw, y + (idx-1) * lh + style::padding.y
@@ -116,11 +158,11 @@ fn (self: ^DocView) get_line_text_y_offset*(): real {
 }
 
 fn (self: ^DocView) get_visible_line_range*(): (int, int) {
-	bounds := self.view.get_content_bounds()
+	bounds := self.get_content_bounds().item0
 	y, y2 := bounds.y, bounds.h
 	lh := self.get_line_height()
-	minline := common::imax(1, floor(y / lh))
-	maxline := common::imin(len(self.doc.lines), floor(y2 / lh) + 1)
+	minline := common::imax(0, floor(y / lh))
+	maxline := common::imin(len(self.doc.lines)-1, floor(y2 / lh) + 1)
 	return minline, maxline
 }
 
@@ -160,25 +202,25 @@ fn (self: ^DocView) scroll_to_line*(line: int, ignore_if_visible, instant: bool)
 	min, max := self.get_visible_line_range()
 	if !(ignore_if_visible && line > min && line < max) {
 		lh := self.get_line_height()
-		self.view.scroll.to.y = common::fmax(0, lh * (line - 1) - self.view.size.y / 2)
+		self.scroll.to.y = common::fmax(0, lh * (line - 1) - self.size.y / 2)
 		if instant {
-			self.view.scroll.y = self.view.scroll.to.y
+			self.scroll.y = self.scroll.to.y
 		}
 	}
 }
 
 fn (self: ^DocView) scroll_to_make_visible*(line, col: int) {
 	min := self.get_line_height() * (line - 1)
-	max := self.get_line_height() * (line + 2) - self.view.size.y
-	self.view.scroll.to.y = common::fmin(self.view.scroll.to.y, min)
-	self.view.scroll.to.y = common::fmax(self.view.scroll.to.y, max)
+	max := self.get_line_height() * (line + 2) - self.size.y
+	self.scroll.to.y = common::fmin(self.scroll.to.y, min)
+	self.scroll.to.y = common::fmax(self.scroll.to.y, max)
 	gw := self.get_gutter_width()
 	xoffset := self.get_col_x_offset(line, col)
-	max = xoffset - self.view.size.x + gw + self.view.size.x / 5
-	self.view.scroll.to.x = common::fmax(0, max)
+	max = xoffset - self.size.x + gw + self.size.x / 5
+	self.scroll.to.x = common::fmax(0, max)
 }
 
-fn mouse_selection(doc: ^doc::Doc, clicks, line1, col1, line2, col2: int): (int, int, int, int) {
+fn mouse_selection*(doc: ^doc::Doc, clicks, line1, col1, line2, col2: int): (int, int, int, int) {
 	swap := line2 < line1 || line2 == line1 && col2 <= col1
 	if swap {
 		line1, col1, line2, col2 = line2, col2, line1, col1
@@ -198,10 +240,10 @@ fn mouse_selection(doc: ^doc::Doc, clicks, line1, col1, line2, col2: int): (int,
 	return line1, col1, line2, col2
 }
 
-fn (self: ^DocView) on_mouse_pressed*(button: str, x, y: real, clicks: int) {
-	caught := self.view.on_mouse_pressed(x, y)
+fn (self: ^DocView) on_mouse_pressed*(button: str, x, y: real, clicks: int): bool {
+	caught := view::on_mouse_pressed(self.get_scrollbar_rect(), &self.dragging_scrollbar, x, y)
 	if caught {
-		return
+		return true
 	}
 	if keymap::modkeys["shift"] {
 		if clicks == 1 {
@@ -217,14 +259,18 @@ fn (self: ^DocView) on_mouse_pressed*(button: str, x, y: real, clicks: int) {
 		self.mouse_selecting = {valid: true, line: line, col: col, clicks: clicks}
 	}
 	self.blink_timer = 0
+	return false
 }
 
 fn (self: ^DocView) on_mouse_moved*(x, y, dx, dy: real) {
-	self.view.on_mouse_moved(x, y, dx, dy)
-	if self.view.scrollbar_overlaps_point(x, y) || self.view.dragging_scrollbar {
-		self.view.cursor = "arrow"
+	view::on_mouse_moved(
+		&self.hovered_scrollbar, &self.dragging_scrollbar, self.position,
+		self.size, &self.scroll, self.get_scrollable_size(), x, y, dx, dy
+	)
+	if self.scrollbar_overlaps_point(x, y) || self.dragging_scrollbar {
+		self.cursor = "arrow"
 	} else {
-		self.view.cursor = "ibeam"
+		self.cursor = "ibeam"
 	}
 	if self.mouse_selecting.valid {
 		l1, c1 := self.resolve_screen_position(x, y)
@@ -235,8 +281,8 @@ fn (self: ^DocView) on_mouse_moved*(x, y, dx, dy: real) {
 	}
 }
 
-fn (self: ^DocView) on_mouse_released*(button: str) {
-	self.view.on_mouse_released()
+fn (self: ^DocView) on_mouse_released*(button: str, x, y: real) {
+	view::on_mouse_released(&self.dragging_scrollbar)
 	self.mouse_selecting.valid = false
 }
 
@@ -245,12 +291,7 @@ fn (self: ^DocView) on_text_input*(text: str) {
 }
 
 fn (self: ^DocView) is_active_view*(): bool {
-	switch av := type(cex::active_view) {
-		case ^DocView: {
-			if av == self { return true }
-		}
-	}
-	return false
+	return selfptr(cex::active_view) == self
 }
 
 fn (self: ^DocView) update*() {
@@ -258,7 +299,7 @@ fn (self: ^DocView) update*() {
 	// -- scroll to make caret visible && reset blink timer if it moved
 	sel, _ := self.doc.get_selection()
 	line, col := sel.a.line, sel.a.col
-	if (line != self.last_line || col != self.last_col) && self.view.size.x > 0 {
+	if (line != self.last_line || col != self.last_col) && self.size.x > 0 {
 		if is_av {
 			self.scroll_to_make_visible(line, col)
 		}
@@ -276,12 +317,12 @@ fn (self: ^DocView) update*() {
 		}
 	}
 
-	self.view.update()
+	view::update(self.get_scrollable_size(), self.size, &self.scroll)
 }
 
 fn (self: ^DocView) draw_line_highlight*(x, y: real) {
 	lh := self.get_line_height()
-	renderer::fdraw_rect(x, y, self.view.size.x, lh, style::line_highlight)
+	renderer::fdraw_rect(x, y, self.size.x, lh, style::line_highlight)
 }
 
 fn (self: ^DocView) draw_line_text*(idx: int, x, y: real) {
@@ -313,7 +354,7 @@ fn (self: ^DocView) draw_line_body*(idx: int, x, y: real) {
 	// -- draw line highlight if caret is on this line
 	is_av := self.is_active_view()
 	if config::highlight_current_line && !self.doc.has_selection() && line == idx && is_av {
-		self.draw_line_highlight(x + self.view.scroll.x, y)
+		self.draw_line_highlight(x + self.scroll.x, y)
 	}
 
 	// -- draw line's text
@@ -336,11 +377,11 @@ fn (self: ^DocView) draw_line_gutter*(idx: int, x, y: real) {
 	}
 	yoffset := self.get_line_text_y_offset()
 	x = x + style::padding.x
-	renderer::draw_text(self.get_font(), sprintf("%d", idx), x, y + yoffset, color)
+	renderer::draw_text(self.get_font(), sprintf("%d", idx+1), x, y + yoffset, color)
 }
 
 fn (self: ^DocView) draw*() {
-	self.view.draw_background(style::background)
+	self.draw_background(style::background)
 
 	font := self.get_font()
 	fw := renderer::font_get_width(font, " ")
@@ -350,7 +391,7 @@ fn (self: ^DocView) draw*() {
 	lh := self.get_line_height()
 
 	_, y := self.get_line_screen_position(minline)
-	x := self.view.position.x
+	x := self.position.x
 	for i := minline; i <= maxline; i++ {
 		self.draw_line_gutter(i, x, y)
 		y = y + lh
@@ -358,14 +399,14 @@ fn (self: ^DocView) draw*() {
 
 	x, y = self.get_line_screen_position(minline)
 	gw := self.get_gutter_width()
-	pos := self.view.position
-	cex::push_clip_rect(pos.x + gw, pos.y, self.view.size.x, self.view.size.y)
+	pos := self.position
+	cex::push_clip_rect(pos.x + gw, pos.y, self.size.x, self.size.y)
 	for i := minline; i <= maxline; i++ {
 		self.draw_line_body(i, x, y)
 		y = y + lh
 	}
 	cex::pop_clip_rect()
-	self.view.draw_scrollbar()
+	self.draw_scrollbar()
 }
 
 

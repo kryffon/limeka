@@ -1,0 +1,815 @@
+import (
+	"strings.um"
+	"config.um"
+	"env.um"
+	"command.um"
+	"cex.um"
+	"logview.um"
+	"system.um"
+	"common.um"
+	"commandview.um"
+	"rootview.um"
+	"translate.um"
+	"docview.um"
+	"search.um"
+	"doc.um"
+)
+
+fn has_commandview(): bool {
+	switch v := type(cex::active_view) {
+		case commandview::CommandView: return true
+	}
+	return false
+}
+
+fn has_docview(): bool {
+	switch v := type(cex::active_view) {
+		case docview::DocView: return true
+	}
+	return false
+}
+
+fn cv(v: cex::View): ^commandview::CommandView { return ^commandview::CommandView(v) }
+fn dv(v: cex::View): ^docview::DocView { return ^docview::DocView(v) }
+fn rv(v: cex::View): ^rootview::RootView { return ^rootview::RootView(v) }
+// fn sv(v: cex::View): ^statusview::StatusView { return ^statusview::StatusView(v) }
+// fn lv(v: cex::View): ^logview::LogView { return ^logview::LogView(v) }
+
+
+fn load_commands_command() {
+	command::add(has_commandview, {
+		"command:submit": fn() { cv(cex::active_view).submit() },
+		"command:complete": fn() { cv(cex::active_view).complete() },
+		"command:escape": fn() { cv(cex::active_view).exit() },
+		"command:select-previous": fn() { cv(cex::active_view).move_suggestion_idx(1) },
+		"command:select-next": fn() { cv(cex::active_view).move_suggestion_idx(-1) },
+	})
+}
+
+fullscreen := false
+
+fn count_dirty_docs*(): (int, str) {
+	dirty_count := 0
+	var dirty_name: str 
+	for _, d in cex::docs {
+		doc := ^doc::Doc(d)
+		if doc.is_dirty() {
+			dirty_count = dirty_count + 1
+			dirty_name = doc.get_name()
+		}
+	}
+	return dirty_count, dirty_name
+}
+
+fn quit*(force: bool = false) {
+	if force {
+		cex::delete_temp_files()
+		cex::quit_request = true
+		return
+	}
+	dirty_count, dirty_name := count_dirty_docs()
+	if dirty_count > 0 {
+		var text: str
+		if dirty_count == 1 {
+			text = sprintf("\"%s\" has unsaved changes. Quit anyway?", dirty_name)
+		} else {
+			text = sprintf("%d docs have unsaved changes. Quit anyway?", dirty_count)
+		}
+		confirm := system::show_confirm_dialog("Unsaved Changes", text)
+		if !confirm { return }
+	}
+	quit(true)
+}
+
+fn open_doc*(filename: str = ""): ^doc::Doc {
+	if len(filename) > 0 {
+		//   -- try to find existing doc for filename
+		abs_filename := system::absolute_path(filename).item0
+		for _, d in cex::docs {
+			doc := ^doc::Doc(d)
+			if len(doc.filename) > 0 && abs_filename == system::absolute_path(doc.filename).item0 {
+				return doc
+			}
+		}
+	}
+	// -- no existing doc for filename; create new
+	doc := doc::get_new(filename)
+	cex::docs = append(cex::docs, doc)
+	if len(filename) > 0 {
+		cex::log_quiet(sprintf("Opened doc \"%s\"", filename))
+	} else {
+		cex::log_quiet("Opened new Doc")
+	}
+	return doc
+}
+
+fn load_commands_core() {
+	command::add(command::always_true, {
+		"core:quit": fn() { quit() },
+		"core:force-quit": fn() { quit() },
+		"core:toggle-fullscreen": fn() {
+			fullscreen = !fullscreen
+			system::set_window_mode(fullscreen ? "fullscreen" : "normal")
+		},
+		"core:reload-module": fn() {
+			submit := fn(text: str, item: ^cex::Suggestion) {
+				text = (item != null)? item.text : text
+				cex::reload_module(text)
+				cex::log_info(sprintf("Reloaded module %v", text))
+			}
+			suggest := fn(text: str): []str {
+				return common::fuzzy_match(keys(cex::package_loaded), text)
+			}
+			cancel := fn(_: bool){}
+			cv(cex::command_view).enter("Reload Module", submit, suggest, cancel)
+		},
+
+		"core:find-command": fn() {
+			commands := command::get_all_valid()
+			submit := fn(text: str, item: ^cex::Suggestion) {
+				if item != null {
+					command::perform(item.text)
+				}
+			}
+			suggest := fn(text: str): []str |commands| {
+				return common::fuzzy_match(commands, text)
+				// for i, name^ in res {
+				// 	res[i] = {
+				// 		text = command.prettify_name(name),
+				// 		info = state::keymap.get_binding(name),
+				// 		command = name,
+				// 	}
+				// }
+			}
+			cancel := fn(_: bool){}
+			cv(cex::command_view).enter("Do Command", submit, suggest, cancel)
+		},
+
+		"core:find-file": fn() {
+			submit := fn(text: str, item: ^cex::Suggestion) {
+				text = (item != null)? item.text : text
+				rv(cex::root_view).open_doc(open_doc(text))
+			}
+			suggest := fn(text: str): []str {
+				files := make([]str, 0)
+				for _, item in cex::project_files {
+					if !item.is_dir {
+						files = append(files, item.name)
+					}
+				}
+				return common::fuzzy_match(files, text)
+			}
+			cancel := fn(_: bool){}
+			cv(cex::command_view).enter("Open File From Project", submit, suggest, cancel)
+		},
+
+		"core:new-doc": fn() {
+			rv(cex::root_view).open_doc(open_doc())
+		},
+
+		"core:open-file": fn() {
+			submit := fn(text: str, _: ^cex::Suggestion) {
+				rv(cex::root_view).open_doc(open_doc(text))
+			}
+			cancel := fn(_: bool){}
+			cv(cex::command_view).enter("Open File", submit, common::path_suggest, cancel)
+		},
+
+		"core:open-log": fn() {
+			node := rv(cex::root_view).get_active_node()
+			node.add_view(logview::get_new())
+		},
+
+		"core:open-user-module": fn() {
+			rv(cex::root_view).open_doc(open_doc(env::EXEDIR + "/data/user/init.um"))
+		},
+
+		"core:open-project-module": fn() {
+			filename := ".lite_project.um"
+			if system::get_file_info(filename).item1 {
+				rv(cex::root_view).open_doc(open_doc(filename))
+			} else {
+				doc := open_doc()
+				rv(cex::root_view).open_doc(doc)
+				doc.save(filename)
+			}
+		},
+	})
+}
+
+fn doc(): ^doc::Doc { return dv(cex::active_view).doc }
+
+fn get_indent_string(): str {
+	if config::tab_type == "hard" {
+		return "\t"
+	}
+	return strings::rep(" ", config::indent_size)
+}
+
+fn insert_at_start_of_selected_lines(text: str, skip_empty: bool = false) {
+	sel, swap := doc().get_selection(true)
+	for line := sel.a.line; line<=sel.b.line; line++ {
+		line_text := doc().lines[line]
+		if !skip_empty || strings::find(line_text, "%S").item2 {
+			doc().insert(line, 0, text)
+		}
+	}
+	doc().set_selection(sel.a.line, sel.a.col + len(text), sel.b.line, sel.b.col + len(text), swap)
+}
+
+fn remove_from_start_of_selected_lines(text: str, skip_empty: bool = false) {
+	sel, swap := doc().get_selection(true)
+	line1, col1, line2, col2 := sel.a.line, sel.a.col, sel.b.line, sel.b.col
+	for line := line1; line<=line2; line++ {
+		line_text := doc().lines[line]
+		if slice(line_text, 0, len(text)) == text && (!skip_empty || strings::find(line_text, "%S").item2) {
+			doc().remove(line, 0, line, len(text))
+		}
+	}
+	doc().set_selection(line1, col1 - len(text), line2, col2 - len(text), swap)
+}
+
+fn append_line_if_last_line(line: int) {
+	if line >= len(doc().lines) {
+		doc().insert(line, env::INT_MAX, "\n")
+	}
+}
+
+fn save(filename: str) {
+	doc().save(filename)
+	cex::log_info(sprintf("Saved \"%s\"", doc().filename))
+}
+
+fn load_commands_doc() {
+	commands := map[str]fn(){
+		"doc:undo": fn () {	doc().undo() },
+		"doc:redo": fn () { doc().redo() },
+		"doc:cut": fn () {
+			doc := doc()
+			if doc.has_selection() {
+				text := doc.get_text_sel(doc.get_selection().item0)
+				system::set_clipboard(text)
+				doc.delete_to(doc::noop, 0)
+			}
+		},
+		"doc:copy": fn () {
+			doc := doc()
+			if doc.has_selection() {
+				text := doc.get_text_sel(doc.get_selection().item0)
+				system::set_clipboard(text)
+			}
+		},
+		"doc:paste": fn () {
+			doc().text_input(strings::gsub(system::get_clipboard(), "\r", ""))
+		},
+		"doc:newline": fn () {
+			sel := doc().get_selection().item0
+			line, col := sel.a.line, sel.a.col
+			indent := strings::match(doc().lines[line], "^[\t ]*")[0]
+			if col <= len(indent) {
+				indent = slice(indent, len(indent) + 2 - col)
+			}
+			doc().text_input("\n" + indent)
+		},
+		"doc:newline-below": fn () {
+			sel := doc().get_selection().item0
+			line := sel.a.line
+			indent := strings::match(doc().lines[line], "^[\t ]*")[0]
+			doc().insert(line, env::INT_MAX, "\n" + indent)
+			doc().set_selection(line + 1, env::INT_MAX)
+		},
+		"doc:newline-above": fn () {
+			sel := doc().get_selection().item0
+			line := sel.a.line
+			indent := strings::match(doc().lines[line], "^[\t ]*")[0]
+			doc().insert(line, 0, indent + "\n")
+			doc().set_selection(line, env::INT_MAX)
+		},
+		"doc:delete": fn () {
+			sel := doc().get_selection().item0
+			line, col := sel.a.line, sel.a.col
+			if !doc().has_selection() && strings::find(doc().lines[line], "^%s*$", col).item2 {
+					doc().remove(line, col, line, env::INT_MAX)
+			}
+			doc().delete_to(translate::next_char)
+		},
+		"doc:backspace": fn () {
+			sel := doc().get_selection().item0
+			line, col := sel.a.line, sel.a.col
+			if !doc().has_selection() {
+				text := doc().get_text(line, 0, line, col)
+				if len(text) >= config::indent_size && strings::find(text, "^ *$").item2 {
+					doc().delete_to(doc::noop, 0, -config::indent_size)
+					return
+				}
+			}
+				doc().delete_to(translate::previous_char)
+		},
+		"doc:select-all": fn () {
+			doc().set_selection(0, 0, env::INT_MAX, env::INT_MAX)
+		},
+		"doc:select-none": fn () {
+			sel := doc().get_selection().item0
+			line, col := sel.a.line, sel.a.col
+			doc().set_selection(line, col)
+		},
+		"doc:select-lines": fn () {
+			sel, swap := doc().get_selection(true)
+			line1, line2 := sel.a.line, sel.b.line
+			append_line_if_last_line(line2)
+			doc().set_selection(line1, 0, line2 + 1, 0, swap)
+		},
+		"doc:select-word": fn () {
+			sel := doc().get_selection(true).item0
+			line1, col1 := sel.a.line, sel.a.col
+			line1, col1 = translate::start_of_word(doc(), line1, col1)
+			line2, col2 := translate::end_of_word(doc(), line1, col1)
+			doc().set_selection(line2, col2, line1, col1)
+		},
+		"doc:join-lines": fn () {
+			sel := doc().get_selection(true).item0
+			line1, line2 := sel.a.line, sel.b.line
+			if line1 == line2 { line2 = line2 + 1 }
+			text := doc().get_text(line1, 0, line2, env::INT_MAX)
+			text = strings::gsub_fn(text, "(.-)\n[\t ]*", fn (x: str): str {
+					return strings::find(x, "^%s*$").item2 ? x : x + " "
+			}, 1)
+			doc().insert(line1, 0, text)
+			doc().remove(line1, len(text) + 1, line2, env::INT_MAX)
+			if doc().has_selection() {
+				doc().set_selection(line1, env::INT_MAX)
+			}
+		},
+		"doc:indent": fn () {
+			text := get_indent_string()
+			if doc().has_selection() {
+				insert_at_start_of_selected_lines(text)
+			} else {
+				doc().text_input(text)
+			}
+		},
+		"doc:unindent": fn () {
+			text := get_indent_string()
+			remove_from_start_of_selected_lines(text)
+		},
+		"doc:duplicate-lines": fn () {
+			sel, swap := doc().get_selection(true)
+			line1, col1, line2, col2 := sel.a.line, sel.a.col, sel.b.line, sel.b.col
+			append_line_if_last_line(line2)
+			text := doc().get_text(line1, 0, line2 + 1, 0)
+			doc().insert(line2 + 1, 0, text)
+			n := line2 - line1 + 1
+			doc().set_selection(line1 + n, col1, line2 + n, col2, swap)
+		},
+		"doc:delete-lines": fn () {
+			sel := doc().get_selection(true).item0
+			line1, col1, line2 := sel.a.line, sel.a.col, sel.b.line
+			append_line_if_last_line(line2)
+			doc().remove(line1, 0, line2 + 1, 0)
+			doc().set_selection(line1, col1)
+		},
+		"doc:move-lines-up": fn () {
+			sel, swap := doc().get_selection(true)
+			line1, col1, line2, col2 := sel.a.line, sel.a.col, sel.b.line, sel.b.col
+			append_line_if_last_line(line2)
+			if line1 > 1 {
+				text := doc().lines[line1 - 1]
+				doc().insert(line2 + 1, 0, text)
+				doc().remove(line1 - 1, 0, line1, 0)
+				doc().set_selection(line1 - 1, col1, line2 - 1, col2, swap)
+			}
+		},
+		// "doc:move-lines-down": fn () {
+		// 	line1, col1, line2, col2, swap := doc().get_selection(true)
+		// 		append_line_if_last_line(line2 + 1)
+		// 		if line2 < #doc().lines {
+		// 	text := doc().lines[line2 + 1]
+		// 			doc().remove(line2 + 1, 1, line2 + 2, 1)
+		// 			doc().insert(line1, 1, text)
+		// 			doc().set_selection(line1 + 1, col1, line2 + 1, col2, swap)
+		// 	}
+		// 	},
+
+		// "doc:toggle-line-comments": fn () {
+		// 	comment := doc().syntax.comment
+		// 		if not comment { return}
+		// 	comment_text := comment .. " "
+		// 	line1, _, line2 := doc().get_selection(true)
+		// 	uncomment := true
+		// 		for line = line1, line2 {
+		// 	text := doc().lines[line]
+		// 			if text:find("%S") and text:find(comment_text, 1, true) ~= 1 {
+		// 				uncomment = false
+		// 		 }
+		// 	}
+		// 		if uncomment {
+		// 			remove_from_start_of_selected_lines(comment_text, true)
+		// 		} else {
+		// 			insert_at_start_of_selected_lines(comment_text, true)
+		// 	}
+		// 	},
+
+		// "doc:upper-case": fn () {
+		// 		doc().replace(string.upper)
+		// 	},
+
+		// "doc:lower-case": fn () {
+		// 		doc().replace(string.lower)
+		// 	},
+
+		// "doc:go-to-line": fn () {
+		// 	dv := dv()
+
+		// 	items
+		// 	function init_items()
+		// 			if items { return}
+		// 			items := {}
+		// 	mt := { __tostring = fn (x) return x.text} } {
+		// 			for i, line in ipairs(dv.doc.lines) {
+		// 	item := { text = line:sub(1, -2), line = i, info = "line: " .. i }
+		// 				table.insert(items, setmetatable(item, mt))
+		// 		 }
+		// 	}
+
+		// 		state::core.command_view:enter("Go To Line", fn (text, item) {
+		// 	line := item and item.line or tonumber(text)
+		// 			if not line {
+		// 				state::core.error("Invalid line number or unmatched string")
+		// 				return
+		// 		 }
+		// 			dv.doc:set_selection(line, 1  )
+		// 			dv:scroll_to_line(line, true)
+
+		// 	}, fn (text) {
+		// 			if not text:find("^%d*$") {
+		// 				init_items()
+		// 				return common.fuzzy_match(items, text)
+		// 		 }
+		// 	})
+		// 	},
+
+		// "doc:toggle-line-ending": fn () {
+		// 		doc().crlf = not doc().crlf
+		// 	},
+
+		// "doc:save-as": fn () {
+		// 		if doc().filename {
+		// 			state::core.command_view:set_text(doc().filename)
+		// 	}
+		// 		state::core.command_view:enter("Save As", fn (filename) {
+		// 			save(filename)
+		// 	}, common.path_suggest)
+		// 	},
+
+		// "doc:save": fn () {
+		// 		if doc().filename {
+		// 			save()
+		// 		else
+		// 			command.perform("doc:save-as")
+		// 	}
+		// 	},
+
+		// "doc:rename": fn () {
+		// 	old_filename := doc().filename
+		// 		if not old_filename {
+		// 			state::core.error("Cannot rename unsaved doc")
+		// 			return
+		// 	}
+		// 		state::core.command_view:set_text(old_filename)
+		// 		state::core.command_view:enter("Rename", fn (filename) {
+		// 			doc().save(filename)
+		// 			state::core.log("Renamed \"%s\" to \"%s\"", old_filename, filename)
+		// 			if filename ~= old_filename {
+		// 				os.remove(old_filename)
+		// 		 }
+		// 	}, common.path_suggest)
+		// 	},
+		}
+
+
+	translations := map[str]doc::TranslateFunc{
+		"previous-char": translate::previous_char,
+		"next-char": translate::next_char,
+		"previous-word-start": translate::previous_word_start,
+		"next-word-end": translate::next_word_end,
+		"previous-block-start": translate::previous_block_start,
+		"next-block-end": translate::next_block_end,
+		"start-of-doc": translate::start_of_doc,
+		"end-of-doc": translate::end_of_doc,
+		"start-of-line": translate::start_of_line,
+		"end-of-line": translate::end_of_line,
+		"start-of-word": translate::start_of_word,
+		"end-of-word": translate::end_of_word,
+		"previous-line": fn(d: ^doc::Doc, l, c: int): (int, int) {
+			return docview::translate_previous_line(d, l, c, dv(cex::active_view))
+		},
+		"next-line": fn(d: ^doc::Doc, l, c: int): (int, int) {
+			return docview::translate_next_line(d, l, c, dv(cex::active_view))
+		},
+		"previous-page": fn(d: ^doc::Doc, l, c: int): (int, int) {
+			return docview::translate_previous_page(d, l, c, dv(cex::active_view))
+		},
+		"next-page": fn(d: ^doc::Doc, l, c: int): (int, int) {
+			return docview::translate_next_page(d, l, c, dv(cex::active_view))
+		},
+	}
+
+	for _, name in keys(translations) {
+		f := translations[name]
+		commands["doc:move-to-" + name] = fn () |f| { doc().move_to(f) }
+		commands["doc:select-to-" + name] = fn () |f| { doc().select_to(f) }
+		commands["doc:delete-to-" + name] = fn () |f| { doc().delete_to(f) }
+	}
+
+	commands["doc:move-to-previous-char"] = fn () {
+		if doc().has_selection() {
+			sel := doc().get_selection(true).item0
+			line, col := sel.a.line, sel.a.col
+			doc().set_selection(line, col)
+		} else {
+			doc().move_to(translate::previous_char)
+		}
+	}
+
+	commands["doc:move-to-next-char"] = fn () {
+		if doc().has_selection() {
+			sel := doc().get_selection(true).item0
+			line, col := sel.b.line, sel.b.col
+			doc().set_selection(line, col)
+		} else {
+			doc().move_to(translate::next_char)
+		}
+	}
+
+	command::add(has_docview, commands)
+}
+
+// max_previous_finds := 50
+
+// var (
+// 	previous_finds: []doc::Selection
+// 	last_doc: ^doc::Doc
+// 	last_fn, last_text
+// )
+
+// fn push_previous_find(doc, sel) {
+// 	if last_doc ~= doc {
+// 		last_doc = doc
+// 		previous_finds = {}
+// 	}
+// 	if #previous_finds >= max_previous_finds {
+// 		table.remove(previous_finds, 1)
+// 	}
+// 	table.insert(previous_finds, sel or { doc:get_selection() })
+// }
+
+
+// fn find(label, search_fn) {
+// 	dv := state::core.active_view
+// 	sel := { dv.doc:get_selection() }
+// 	text := dv.doc:get_text(table.unpack(sel))
+// 	found := false
+
+// 	state::core.command_view:set_text(text, true)
+
+// 	state::core.command_view:enter(label, fn (text) {
+// 		if found {
+// 			last_fn, last_text = search_fn, text
+// 			previous_finds = {}
+// 			push_previous_find(dv.doc, sel)
+// 		else
+// 			state::core.error("Couldn't find %q", text)
+// 			dv.doc:set_selection(table.unpack(sel))
+// 			dv:scroll_to_make_visible(sel[1], sel[2])
+// 		}
+
+// 	}, fn (text) {
+// 	ok, line1, col1, line2, col2 := pcall(search_fn, dv.doc, sel[1], sel[2], text)
+// 		if ok and line1 and text ~= "" {
+// 			dv.doc:set_selection(line2, col2, line1, col1)
+// 			dv:scroll_to_line(line2, true)
+// 			found = true
+// 		else
+// 			dv.doc:set_selection(table.unpack(sel))
+// 			found = false
+// 		}
+
+// 	}, fn (explicit) {
+// 		if explicit {
+// 			dv.doc:set_selection(table.unpack(sel))
+// 			dv:scroll_to_make_visible(sel[1], sel[2])
+// 		}
+// 	})
+// }
+
+
+// fn replace(kind, default, fn) {
+// 	state::core.command_view:set_text(default, true)
+
+// 	state::core.command_view:enter("Find To Replace " .. kind, fn (old) {
+// 		state::core.command_view:set_text(old, true)
+
+// 	s := string.format("Replace %s %q With", kind, old)
+// 		state::core.command_view:enter(s, fn (new) {
+// 	n := doc().replace(fn (text) {
+// 				return fn(text, old, new)
+// 			})
+// 			state::core.log("Replaced %d instance(s) of %s %q with %q", n, kind, old, new)
+// 		})
+// 	})
+// }
+
+
+// fn has_selection() {
+// 	return state::core.active_view:is(DocView)
+// 		 and state::core.active_view.doc:has_selection()
+// }
+
+// fn load_commands_find_replace*() {
+// command.add(has_selection, {
+// 	"find-replace:select-next": fn() {
+// 	l1, c1, l2, c2 := doc().get_selection(true)
+// 	text := doc().get_text(l1, c1, l2, c2)
+// 	l1, c1, l2, c2 := search.find(doc(), l2, c2, text, { wrap = true })
+// 		if l2 { doc().set_selection(l2, c2, l1, c1) }
+// 	}
+// })
+
+// command.add("core.docview", {
+// 	"find-replace:find": fn() {
+// 		find("Find Text", fn (doc, line, col, text) {
+// 	opt := { wrap = true, no_case = true }
+// 			return search.find(doc, line, col, text, opt)
+// 		})
+// 	},
+
+// 	"find-replace:find-pattern": fn() {
+// 		find("Find Text Pattern", fn (doc, line, col, text) {
+// 	opt := { wrap = true, no_case = true, pattern = true }
+// 			return search.find(doc, line, col, text, opt)
+// 		})
+// 	},
+
+// 	"find-replace:repeat-find": fn() {
+// 		if !last_fn {
+// 			state::core.error("No find to continue from")
+// 		} else {
+// 	line, col := doc().get_selection()
+// 	line1, col1, line2, col2 := last_fn(doc(), line, col, last_text)
+// 			if line1 {
+// 				push_previous_find(doc())
+// 				doc().set_selection(line2, col2, line1, col1)
+// 				state::core.active_view:scroll_to_line(line2, true)
+// 			}
+// 		}
+// 	},
+
+// 	"find-replace:previous-find": fn() {
+// 	sel := table.remove(previous_finds)
+// 		if not sel or doc() ~= last_doc {
+// 			state::core.error("No previous finds")
+// 			return
+// 		}
+// 		doc().set_selection(table.unpack(sel))
+// 		state::core.active_view:scroll_to_line(sel[3], true)
+// 	},
+
+// 	"find-replace:replace": fn() {
+// 		replace("Text", "", fn (text, old, new) {
+// 			return text:gsub(old:gsub("%W", "%%%1"), new:gsub("%%", "%%%%"), nil)
+// 		})
+// 	},
+
+// 	"find-replace:replace-pattern": fn() {
+// 		replace("Pattern", "", fn (text, old, new) {
+// 			return text:gsub(old, new)
+// 		})
+// 	},
+
+// 	"find-replace:replace-symbol": fn() {
+// 	first := ""
+// 		if doc().has_selection() {
+// 	text := doc().get_text(doc().get_selection())
+// 			first = text:match(state::config.symbol_pattern) or ""
+// 		}
+// 		replace("Symbol", first, fn (text, old, new) {
+// 	n := 0
+// 	res := text:gsub(state::config.symbol_pattern, fn (sym) {
+// 				if old == sym {
+// 					n = n + 1
+// 					return new
+// 				}
+// 			})
+// 			return res, n
+// 		})
+// 	},
+// })
+
+// }
+
+// t := map[str]fn(){
+// 	"root:close": fn() {
+// node := core.root_view:get_active_node()
+// 		node:close_active_view(core.root_view.root_node)
+// },
+
+// 	"root:switch-to-previous-tab": fn() {
+// node := core.root_view:get_active_node()
+// idx := node:get_view_idx(core.active_view)
+// 		idx = idx - 1
+// 		if idx < 1 { idx = #node.views}
+// 		node:set_active_view(node.views[idx])
+// },
+
+// 	"root:switch-to-next-tab": fn() {
+// node := core.root_view:get_active_node()
+// idx := node:get_view_idx(core.active_view)
+// 		idx = idx + 1
+// 		if idx > #node.views { idx = 1}
+// 		node:set_active_view(node.views[idx])
+// },
+
+// 	"root:move-tab-left": fn() {
+// node := core.root_view:get_active_node()
+// idx := node:get_view_idx(core.active_view)
+// 		if idx > 1 {
+// 			table.remove(node.views, idx)
+// 			table.insert(node.views, idx - 1, core.active_view)
+// }
+// },
+
+// 	"root:move-tab-right": fn() {
+// node := core.root_view:get_active_node()
+// idx := node:get_view_idx(core.active_view)
+// 		if idx < #node.views {
+// 			table.remove(node.views, idx)
+// 			table.insert(node.views, idx + 1, core.active_view)
+// }
+// },
+
+// 	"root:shrink": fn() {
+// node := core.root_view:get_active_node()
+// parent := node:get_parent_node(core.root_view.root_node)
+// n := (parent.a == node) and -0.1 or 0.1
+// 		parent.divider = common.clamp(parent.divider + n, 0.1, 0.9)
+// },
+
+// 	"root:grow": fn() {
+// node := core.root_view:get_active_node()
+// parent := node:get_parent_node(core.root_view.root_node)
+// n := (parent.a == node) and 0.1 or -0.1
+// 		parent.divider = common.clamp(parent.divider + n, 0.1, 0.9)
+// },
+// }
+
+// fn load_commands_root*() {
+// for i = 1, 9 do
+// 	t["root:switch-to-tab-" .. i] = fn() {
+// node := core.root_view:get_active_node()
+// view := node.views[i]
+// 		if view {
+// 			node:set_active_view(view)
+// }
+// }
+// }
+
+
+// for _, dir in ipairs { "left", "right", "up", "down" } {
+// 	t["root:split-" .. dir] = fn() {
+// node := core.root_view:get_active_node()
+// av := node.active_view
+// 		node:split(dir)
+// 		if av:is(DocView) {
+// 			core.root_view:open_doc(av.doc)
+// }
+// }
+
+// 	t["root:switch-to-" .. dir] = fn() {
+// node := core.root_view:get_active_node()
+// x, y
+// 		if dir :== "left" or dir == "right" {
+// 			y = node.position.y + node.size.y / 2
+// 			x = node.position.x + (dir == "left" and -1 or node.size.x + style.divider_size)
+// 		else
+// 			x = node.position.x + node.size.x / 2
+// 			y = node.position.y + (dir == "up"   and -1 or node.size.y + style.divider_size)
+// }
+// node := core.root_view.root_node:get_child_overlapping_point(x, y)
+// 		if not node:get_locked_size() {
+// 			core.set_active_view(node.active_view)
+// }
+// }
+// }
+
+// command.add(fn() {
+// node := core.root_view:get_active_node()
+// 	return not node:get_locked_size()
+// }, t)
+// }
+
+
+fn load_default_commands*() {
+	load_commands_doc()
+	load_commands_core()
+	load_commands_command()
+}

@@ -1,0 +1,550 @@
+import (
+	"common.um"
+	"docview.um"
+	"doc.um"
+	"renderer.um"
+	"system.um"
+	"style.um"
+	"cex.um"
+	"view.um"
+	"std.um"
+	"env.um"
+	"emptyview.um"
+)
+
+// node
+type Node* = struct {
+	typ: str;
+	position, size: common::Vec2;
+	views: []cex::View;
+	divider: real
+	active_view: cex::View;
+	a, b: ^Node;
+	locked: bool;
+	hovered_tab: int;
+}
+
+fn (self: ^Node) set_active_view*(view: cex::View) {
+	std::assert(self.typ == "leaf", "Tried to set active view on non-leaf node")
+	self.active_view = view
+	cex::set_active_view(view)
+}
+
+fn (self: ^Node) add_view*(view: cex::View) {
+	std::assert(self.typ == "leaf", "Tried to add view to non-leaf node")
+	std::assert(!self.locked, "Tried to add view to locked node")
+	var tmp: cex::View = emptyview::EmptyView{}
+	if len(self.views) > 0 && selftypeeq(self.views[0], tmp) {
+		self.views = delete(self.views, len(self.views)-1)
+	}
+	self.views = append(self.views, view)
+	self.set_active_view(view)
+}
+
+fn get_new_node*(typ: str = "leaf"): ^Node {
+	self := new(Node)
+	self.typ = typ
+	self.divider = 0.5
+	if self.typ == "leaf" {
+		self.add_view(emptyview::EmptyView{})
+	}
+	return self
+}
+
+fn (self: ^Node) get_tab_rect*(idx: int): (real, real, real, real) {
+	vl := len(self.views)
+	vl = (vl == 0)? env::INT_MAX : vl
+	tw := common::fmin(style::tab_width, ceil(self.size.x / vl))
+	h := renderer::font_get_height(style::font) + style::padding.y * 2
+	return self.position.x + (idx-1) * tw, self.position.y, tw, h
+}
+
+fn (self: ^Node) get_tab_overlapping_point*(px, py: real): int {
+	if len(self.views) == 1 { return -1 }
+	x, y, w, h := self.get_tab_rect(1)
+	if px >= x && py >= y && px < x + w * len(self.views) && py < y + h {
+		return floor((px - x) / w) + 1
+	}
+	return -1
+}
+
+fn (self: ^Node) on_mouse_moved*(x, y, dx, dy: real) {
+	self.hovered_tab = self.get_tab_overlapping_point(x, y)
+	if self.typ == "leaf" {
+		self.active_view.on_mouse_moved(x, y, dx, dy)
+	} else {
+		self.a.on_mouse_moved(x, y, dx, dy)
+		self.b.on_mouse_moved(x, y, dx, dy)
+	}
+}
+
+fn (self: ^Node) on_mouse_released*(button: str, x, y: real) {
+	if self.typ == "leaf" {
+		self.active_view.on_mouse_released(button, x, y)
+	} else {
+		self.a.on_mouse_released(button, x, y)
+		self.b.on_mouse_released(button, x, y)
+	}
+}
+
+fn (self: ^Node) consume*(node: ^Node) {
+	self^ = node^
+}
+
+fn type_map(dir: str): str {
+	if dir == "up" || dir == "down" {
+		return "vsplit"
+	} else if dir == "left" || dir == "right" {
+		return "hsplit"
+	}
+	return ""
+}
+
+fn (self: ^Node) split*(dir: str, view: cex::View, locked: bool): ^Node {
+	std::assert(self.typ == "leaf", "Tried to split non-leaf node")
+	typ := type_map(dir)
+	std::assert(len(typ) > 0, "Invalid direction")
+	last_active := cex::active_view
+	child := get_new_node()
+	child.consume(self)
+	self.consume(get_new_node(typ))
+	self.a = child
+	self.b = get_new_node()
+	if valid(view) { self.b.add_view(view) }
+	if locked {
+		self.b.locked = locked
+		cex::set_active_view(last_active)
+	}
+	if dir == "up" || dir == "left" {
+		self.a, self.b = self.b, self.a
+	}
+	return child
+}
+
+fn (self: ^Node) get_view_idx*(view: cex::View): int {
+	for i, v in self.views {
+		if selfptr(v) == selfptr(view) { return i }
+	}
+	return -1
+}
+
+fn (self: ^Node) get_parent_node*(root: ^Node): ^Node {
+	if root.a == self || root.b == self {
+		return root
+	} else if root.typ != "leaf" {
+		pa := self.get_parent_node(root.a)
+		if pa == null {
+			return self.get_parent_node(root.b)
+		}
+		return pa
+	}
+	return null
+}
+
+fn (self: ^Node) get_locked_size*(): (real, real, bool) {
+	if self.typ == "leaf" {
+		if self.locked {
+			size := self.active_view.get_content_bounds().item2
+			return size.x, size.y, true
+		}
+	} else {
+		x1, y1, ok1 := self.a.get_locked_size()
+		x2, y2, ok2 := self.b.get_locked_size()
+		if ok1 && ok2 {
+			dsx := (x1 < 1 || x2 < 1) ? 0.0 : style::divider_size
+			dsy := (y1 < 1 || y2 < 1) ? 0.0 : style::divider_size
+			return x1 + x2 + dsx, y1 + y2 + dsy, true
+		}
+	}
+	return 0, 0, false
+}
+
+fn (self: ^Node) close_active_view*(root: ^Node) {
+	do_close := fn () |self, root| {
+		if len(self.views) > 1 {
+			idx := self.get_view_idx(self.active_view)
+			if idx != -1 {
+				self.views = delete(self.views, idx)
+			} else {
+				idx += len(self.views)
+			}
+			idx = common::imin(idx, len(self.views)-1)
+			self.set_active_view(self.views[idx])
+		} else {
+			parent := self.get_parent_node(root)
+			is_a := (parent.a == self)
+			other := (is_a)? parent.b : parent.b
+			if other.get_locked_size().item2 {
+				self.views = {}
+				self.add_view(emptyview::EmptyView{})
+			} else {
+				parent.consume(other)
+				p := parent
+				for p.typ != "leaf" {
+					p = (is_a)? p.a : p.b
+				}
+				p.set_active_view(p.active_view)
+			}
+		}
+		cex::last_active_view = null
+	}
+	self.active_view.try_close(do_close)
+}
+
+fn (self: ^Node) get_node_for_view*(view: cex::View): ^Node {
+	for _, v in self.views {
+		if selfptr(v) == selfptr(view) { return self }
+	}
+	if self.typ != "leaf" {
+		t := self.a.get_node_for_view(view)
+		if t == null {
+			return self.b.get_node_for_view(view)
+		}
+		return t
+	}
+	return null
+}
+
+fn (self: ^Node) get_children*(t: []cex::View): []cex::View {
+	for _, view in self.views {
+		t = append(t, view)
+	}
+	if self.a != null { self.a.get_children(t) }
+	if self.b != null { self.b.get_children(t) }
+	return t
+}
+
+fn (self: ^Node) get_divider_rect*(): (common::Rect, bool) {
+	x, y := self.position.x, self.position.y
+	if self.typ == "hsplit" {
+		return {x + self.a.size.x, y, style::divider_size, self.size.y}, true
+	} else if self.typ == "vsplit" {
+		return {x, y + self.a.size.y, self.size.x, style::divider_size}, true
+	}
+	return {}, false
+}
+
+fn (self: ^Node) get_divider_overlapping_point*(px, py: real): ^Node {
+	if self.typ != "leaf" {
+		p := 6
+		s, ok := self.get_divider_rect()
+		if !ok { return null }
+		x, y, w, h := s.x, s.y, s.w, s.h
+		x, y = x - p, y - p
+		w, h = w + p * 2, h + p * 2
+		if px > x && py > y && px < x + w && py < y + h {
+			return self
+		}
+		t := self.a.get_divider_overlapping_point(px, py)
+		if t == null {
+			return self.b.get_divider_overlapping_point(px, py)
+		}
+		return t
+	}
+	return null
+}
+
+fn (self: ^Node) get_child_overlapping_point*(x, y: real): ^Node {
+	var child: ^Node
+	if self.typ == "leaf" {
+		return self
+	} else if self.typ == "hsplit" {
+		child = (x < self.b.position.x)? self.a : self.b
+	} else if self.typ == "vsplit" {
+		child = (y < self.b.position.y)? self.a : self.b
+	}
+	return child.get_child_overlapping_point(x, y)
+}
+
+// -- calculating the sizes is the same for hsplits && vsplits, except the x/y
+// -- axis are swapped; this function lets us use the same code for both
+fn calc_split_sizes(self: ^Node, flip: bool, x1, x2: real, ok1, ok2: bool) {
+	var n: real
+	ds := (ok1 && x1 < 1 || ok2 && x2 < 1)? 0.0 : style::divider_size
+	if ok1 {
+		n = x1 + ds
+	} else if ok2 {
+		n = self.size.x - x2
+	} else {
+		sx := flip ? self.size.y : self.size.x
+		n = floor(sx * self.divider)
+	}
+	self.a.position = self.position
+	self.b.position = self.position
+	self.a.size = self.size
+	self.b.size = self.size
+	if !flip {
+		self.a.size.x = n - ds
+		self.b.position.x = self.position.x + n
+		self.b.size.x = self.size.x - n
+	} else {
+		self.a.size.y = n - ds
+		self.b.position.y = self.position.y + n
+		self.b.size.y = self.size.y - n
+	}
+}
+
+fn (self: ^Node) update_layout*() {
+	if self.typ == "leaf" {
+		av := self.active_view
+		if len(self.views) > 1 {
+			th := self.get_tab_rect(0).item3
+			_, position, size := av.get_content_bounds()
+			position.x, position.y = self.position.x, self.position.y + th
+			size.x, size.y = self.size.x, self.size.y - th
+		} else {
+			_, position, size := av.get_content_bounds()
+			position^ = self.position
+			size^ = self.size
+		}
+	} else {
+		x1, y1, ok1 := self.a.get_locked_size()
+		x2, y2, ok2 := self.b.get_locked_size()
+		if self.typ == "hsplit" {
+			calc_split_sizes(self, false, x1, x2, ok1, ok2)
+		} else if self.typ == "vsplit" {
+			calc_split_sizes(self, true, y1, y2, ok1, ok2)
+		}
+		self.a.update_layout()
+		self.b.update_layout()
+	}
+}
+
+fn (self: ^Node) update*() {
+	if self.typ == "leaf" {
+		for _, view in self.views {
+			view.update()
+		}
+	} else {
+		self.a.update()
+		self.b.update()
+	}
+}
+
+
+fn (self: ^Node) draw_tabs*() {
+	x, y, w, h := self.get_tab_rect(0)
+	ds := style::divider_size
+	cex::push_clip_rect(x, y, self.size.x, h)
+	renderer::fdraw_rect(x, y, self.size.x, h, style::background2)
+	renderer::fdraw_rect(x, y + h - ds, self.size.x, ds, style::divider)
+
+	for i, view in self.views {
+		x, y, w, h = self.get_tab_rect(i)
+		text := view.get_name()
+		color := style::dim
+		if selfptr(view) == selfptr(self.active_view) {
+			color = style::text
+			renderer::fdraw_rect(x, y, w, h, style::background)
+			renderer::fdraw_rect(x + w, y, ds, h, style::divider)
+			renderer::fdraw_rect(x - ds, y, ds, h, style::divider)
+		}
+		if i == self.hovered_tab {
+			color = style::text
+		}
+		cex::push_clip_rect(x, y, w, h)
+		x, w = x + style::padding.x, w - style::padding.x * 2
+		align := (renderer::font_get_width(style::font, text) > w)? "left" : "center"
+		common::draw_text(style::font, color, text, align, x, y, w, h)
+		cex::pop_clip_rect()
+	}
+
+	cex::pop_clip_rect()
+}
+
+fn (self: ^Node) draw*() {
+	if self.typ == "leaf" {
+		if len(self.views) > 1 {
+			self.draw_tabs()
+		}
+		_, pos, size := self.active_view.get_content_bounds()
+		cex::push_clip_rect(pos.x, pos.y, size.x + pos.x % 1, size.y + pos.y % 1)
+		self.active_view.draw()
+		cex::pop_clip_rect()
+	} else {
+		r := self.get_divider_rect().item0
+		renderer::fdraw_rect(r.x, r.y, r.w, r.h, style::divider)
+		self.a.draw()
+		self.b.draw()
+	}
+}
+
+type RootView* = struct {
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+
+	// rootview
+	root_node: ^Node;
+	deferred_draws: []fn();
+	mouse: common::Vec2;
+	dragged_divider: ^Node;
+}
+
+fn (self: ^RootView) get_debug*(): str {
+	return "RootView"
+}
+
+fn (self: ^RootView) try_close*(do_close: fn()) {
+	do_close()
+}
+
+fn (self: ^RootView) get_name*(): str {
+	return "---"
+}
+
+fn (self: ^RootView) get_cursor*(): str {
+	return self.cursor
+}
+
+fn (self: ^RootView)	get_scrollable_size*(): real {
+	return env::INT_MAX
+}
+
+fn (self: ^RootView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^RootView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^RootView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^RootView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^RootView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^RootView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
+fn (self: ^RootView) update*();
+fn (self: ^RootView) draw*();
+
+fn get_new*(): ^RootView {
+	self := new(RootView)
+	self.cursor = "arrow"
+	self.root_node = get_new_node()
+	return self
+}
+
+fn (self: ^RootView) defer_draw*(f: fn()) {
+	self.deferred_draws = insert(self.deferred_draws, 0, f)
+}
+
+fn (self: ^RootView) get_active_node*(): ^Node {
+	return self.root_node.get_node_for_view(cex::active_view)
+}
+
+fn (self: ^RootView) open_doc*(doc: ^doc::Doc): cex::View {
+	node := self.get_active_node()
+	if node.locked && valid(cex::last_active_view) {
+		cex::set_active_view(cex::last_active_view)
+		node = self.get_active_node()
+	}
+	std::assert(!node.locked, "Cannot open doc on locked node")
+	for i, view in node.views {
+		switch v := type(view) {
+			case ^docview::DocView: if v.doc == doc {
+				node.set_active_view(node.views[i])
+				return view
+			}
+		}
+	}
+	view := docview::get_new(doc)
+	node.add_view(view)
+	self.root_node.update_layout()
+	sel := view.doc.get_selection().item0
+	view.scroll_to_line(sel.a.line, true, true)
+	return view
+}
+
+fn (self: ^RootView) on_mouse_pressed*(button: str, x, y: real, clicks: int): bool {
+	div := self.root_node.get_divider_overlapping_point(x, y)
+	if div != null {
+		self.dragged_divider = div
+		return true
+	}
+	node := self.root_node.get_child_overlapping_point(x, y)
+	idx := node.get_tab_overlapping_point(x, y)
+	if idx >= 0 {
+		node.set_active_view(node.views[idx])
+		if button == "middle" {
+			node.close_active_view(self.root_node)
+		}
+	} else {
+		cex::set_active_view(node.active_view)
+		node.active_view.on_mouse_pressed(button, x, y, clicks)
+	}
+	return false
+}
+
+fn (self: ^RootView) on_mouse_released*(button: str, x, y: real) {
+	if self.dragged_divider != null {
+		self.dragged_divider = null
+	}
+	self.root_node.on_mouse_released(button, x, y)
+}
+
+fn (self: ^RootView) on_mouse_moved*(x, y, dx, dy: real) {
+	if self.dragged_divider != null {
+		node := self.dragged_divider
+		if node.typ == "hsplit" {
+			node.divider = node.divider + dx / node.size.x
+		} else {
+			node.divider = node.divider + dy / node.size.y
+		}
+		node.divider = common::fclamp(node.divider, 0.01, 0.99)
+		return
+	}
+
+	self.mouse.x, self.mouse.y = x, y
+	self.root_node.on_mouse_moved(x, y, dx, dy)
+
+	node := self.root_node.get_child_overlapping_point(x, y)
+	div := self.root_node.get_divider_overlapping_point(x, y)
+	if div != null {
+		system::set_cursor((div.typ == "hsplit")? "sizeh" : "sizev")
+	} else if node.get_tab_overlapping_point(x, y) >= 0 {
+		system::set_cursor("arrow")
+	} else {
+		system::set_cursor(node.active_view.get_cursor())
+	}
+}
+
+fn (self: ^RootView) on_mouse_wheel*(_: real) {
+	x, y := self.mouse.x, self.mouse.y
+	node := self.root_node.get_child_overlapping_point(x, y)
+	node.active_view.on_mouse_wheel(y)
+}
+
+fn (self: ^RootView) on_text_input*(text: str) {
+	cex::active_view.on_text_input(text)
+}
+
+fn (self: ^RootView) update*() {
+	self.root_node.position = self.position
+	self.root_node.size = self.size
+	self.root_node.update()
+	self.root_node.update_layout()
+}
+
+fn (self: ^RootView) draw*() {
+	self.root_node.draw()
+	for i in self.deferred_draws {
+		self.deferred_draws[i]()
+	}
+	self.deferred_draws = {}
+}
+

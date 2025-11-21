@@ -13,7 +13,7 @@ fn is_non_word(c: char): bool {
 fn previous_char*(doc: ^doc::Doc, line, col: int): (int, int) {
 	for true {
 		line, col = doc.position_offset(line, col, doc::noop, -1)
-		if common::is_utf8_cont(doc.get_char(line, col)) {
+		if !common::is_utf8_cont(doc.get_char(line, col)) {
 			break
 		}
 	}
@@ -39,7 +39,7 @@ fn end_of_doc*(doc: ^doc::Doc, line, col: int): (int, int) {
 fn next_char*(doc: ^doc::Doc, line, col: int): (int, int) {
 	for true {
 		line, col = doc.position_offset(line, col, doc::noop, 1)
-		if common::is_utf8_cont(doc.get_char(line, col)) {
+		if !common::is_utf8_cont(doc.get_char(line, col)) {
 			break
 		}
 	}
@@ -114,7 +114,7 @@ fn previous_block_start*(doc: ^doc::Doc, line, col: int): (int, int) {
 	return 0, 0
 }
 
-fn next_block_start*(doc: ^doc::Doc, line, col: int): (int, int) {
+fn next_block_end*(doc: ^doc::Doc, line, col: int): (int, int) {
 	for true {
 		if line >= len(doc.lines) {
 			break

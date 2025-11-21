@@ -153,16 +153,7 @@ main :: proc() {
 		argv[i] = (^u8)(strings.unsafe_string_to_cstring(os2.args[i]))
 	}
 
-	when ODIN_DEBUG {
-		for true {
-			fmt.printf(blue("\nUMKA_VERSION: %s\n"), umka.GetVersion())
-			umka_main(argc, argv)
-			fmt.printf("\nPress ENTER to re-run. ESC to exit\n")
-			if libc.getchar() == 27 do break
-		}
-	} else {
-		umka_main(argc, argv)
-	}
+	umka_main(argc, argv)
 
 	ren_free_fonts()
 	sdl.DestroyWindow(window)
@@ -179,7 +170,7 @@ umka_main :: proc(argc: i32, argv: []^u8) {
 
 	U := umka.Alloc()
 	// odinfmt: disable
-	ok := umka.Init(U, nil, umka_code, 1024 * 1024, nil, argc, raw_data(argv), false, false, umka.PrintCompileWarning)
+	ok := umka.Init(U, nil, umka_code, 1024 * 1024, nil, argc, raw_data(argv), true, false, umka.PrintCompileWarning)
 	// odinfmt: enable
 
 	if ok do ok = add_constants(U)

@@ -62,14 +62,17 @@ api_add_lite_modules :: proc(U: umka.Context) -> bool {
 	statusview_source := #load("data/core/statusview.um", cstring)
 	if !umka.AddModule(U, "statusview.um", statusview_source) do return false
 
+	emptyview_source := #load("data/core/emptyview.um", cstring)
+	if !umka.AddModule(U, "emptyview.um", emptyview_source) do return false
+
 	rootview_source := #load("data/core/rootview.um", cstring)
 	if !umka.AddModule(U, "rootview.um", rootview_source) do return false
 
-	core_source := #load("data/core/core.um", cstring)
-	if !umka.AddModule(U, "core.um", core_source) do return false
-
 	commandutils_source := #load("data/core/commands/commandutils.um", cstring)
 	if !umka.AddModule(U, "commandutils.um", commandutils_source) do return false
+
+	core_source := #load("data/core/core.um", cstring)
+	if !umka.AddModule(U, "core.um", core_source) do return false
 
 	return true
 }

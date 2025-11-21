@@ -1,5 +1,5 @@
 type Event* = struct {
-	etype: str;
+	etype, s: str;
 	a,b,c,d: real;
 }
 
@@ -36,5 +36,4 @@ type Match* = struct {
 }
 
 fn search_file_find*(pattern, file: str): []Match
-fn lerp_uint8*(a, b: uint8, t: real): uint8
 

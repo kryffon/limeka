@@ -78,11 +78,11 @@ fn sub*(s: str, i: int, j:int = -1): str {
 
 fn gsub*(s, pattern, repl: str): str
 
-fn gsub_fn*(text, pattern: str, repl: fn(r: str):str): str {
+fn gsub_fn*(text, pattern: str, repl: fn(r: str):str, cap_idx: int = 0): str {
 	pos := make([]Capture, 0)
 	captures, iter_offset := rfind(text, pattern, 0, typeptr([]Capture))
 	for len(captures) > 0 {
-		pos = append(pos, captures[0])
+		pos = append(pos, captures[cap_idx])
 		captures, iter_offset = rfind(text, pattern, iter_offset, typeptr([]Capture))
 	}
 
