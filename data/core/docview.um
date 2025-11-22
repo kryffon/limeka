@@ -122,13 +122,13 @@ fn (self: ^DocView) try_close*(do_close: fn()) {
 				do_close()
 			}
 		}
-		suggest := fn(text: str): []str {
-			items := make([]str, 0)
+		suggest := fn(text: str): []cex::Suggestion {
+			items := make([]cex::Suggestion, 0)
 			if !strings::find(text, "^[^cC]").item2 {
-				items = append(items, "Close Without Saving")
+				items = append(items, {text:"Close Without Saving"})
 			}
 			if !strings::find(text, "^[^sS]").item2 {
-				items = append(items, "Save && Close")
+				items = append(items, {text:"Save && Close"})
 			}
 			return items
 		}
@@ -148,7 +148,7 @@ fn (self: ^DocView) get_line_screen_position*(idx: int): (real, real) {
 	x, y := self.get_content_offset()
 	lh := self.get_line_height()
 	gw := self.get_gutter_width()
-	return x + gw, y + (idx-1) * lh + style::padding.y
+	return x + gw, y + idx * lh + style::padding.y
 }
 
 fn (self: ^DocView) get_line_text_y_offset*(): real {

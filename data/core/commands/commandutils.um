@@ -1,4 +1,5 @@
 import (
+	"std.um"
 	"strings.um"
 	"config.um"
 	"env.um"
@@ -13,6 +14,8 @@ import (
 	"docview.um"
 	"search.um"
 	"doc.um"
+	"style.um"
+	"keymap.um"
 )
 
 fn has_commandview(): bool {
@@ -29,12 +32,34 @@ fn has_docview(): bool {
 	return false
 }
 
+fn is_docview(view: cex::View): bool {
+	switch v := type(view) {
+		case docview::DocView: return true
+	}
+	return false
+}
+
+fn doc(): ^doc::Doc {
+	switch v := type(cex::active_view) {
+		case ^docview::DocView: return v.doc
+		case ^commandview::CommandView: return v.doc
+	}
+	return null
+}
+
+fn has_doc(): bool {
+	switch v := type(cex::active_view) {
+		case ^docview::DocView: return true
+		case ^commandview::CommandView: return true
+	}
+	return false
+}
+
 fn cv(v: cex::View): ^commandview::CommandView { return ^commandview::CommandView(v) }
 fn dv(v: cex::View): ^docview::DocView { return ^docview::DocView(v) }
 fn rv(v: cex::View): ^rootview::RootView { return ^rootview::RootView(v) }
 // fn sv(v: cex::View): ^statusview::StatusView { return ^statusview::StatusView(v) }
 // fn lv(v: cex::View): ^logview::LogView { return ^logview::LogView(v) }
-
 
 fn load_commands_command() {
 	command::add(has_commandview, {
@@ -117,8 +142,13 @@ fn load_commands_core() {
 				cex::reload_module(text)
 				cex::log_info(sprintf("Reloaded module %v", text))
 			}
-			suggest := fn(text: str): []str {
-				return common::fuzzy_match(keys(cex::package_loaded), text)
+			suggest := fn(text: str): []cex::Suggestion {
+				matches := common::fuzzy_match(keys(cex::package_loaded), text)
+				res := make([]cex::Suggestion, len(matches))
+				for i in matches {
+					res[i] = {text: matches[i]}
+				}
+				return res
 			}
 			cancel := fn(_: bool){}
 			cv(cex::command_view).enter("Reload Module", submit, suggest, cancel)
@@ -131,15 +161,17 @@ fn load_commands_core() {
 					command::perform(item.text)
 				}
 			}
-			suggest := fn(text: str): []str |commands| {
-				return common::fuzzy_match(commands, text)
-				// for i, name^ in res {
-				// 	res[i] = {
-				// 		text = command.prettify_name(name),
-				// 		info = state::keymap.get_binding(name),
-				// 		command = name,
-				// 	}
-				// }
+			suggest := fn(text: str): []cex::Suggestion |commands| {
+				matches := common::fuzzy_match(commands, text)
+				res := make([]cex::Suggestion, len(matches))
+				for i, name in matches {
+					res[i] = {
+						text: command::prettify_name(name),
+						info: keymap::get_binding(name),
+						command: name,
+					}
+				}
+				return res
 			}
 			cancel := fn(_: bool){}
 			cv(cex::command_view).enter("Do Command", submit, suggest, cancel)
@@ -150,14 +182,19 @@ fn load_commands_core() {
 				text = (item != null)? item.text : text
 				rv(cex::root_view).open_doc(open_doc(text))
 			}
-			suggest := fn(text: str): []str {
+			suggest := fn(text: str): []cex::Suggestion {
 				files := make([]str, 0)
 				for _, item in cex::project_files {
 					if !item.is_dir {
 						files = append(files, item.name)
 					}
 				}
-				return common::fuzzy_match(files, text)
+				matches := common::fuzzy_match(files, text)
+				res := make([]cex::Suggestion, len(matches))
+				for i in matches {
+					res[i] = {text: matches[i]}
+				}
+				return res
 			}
 			cancel := fn(_: bool){}
 			cv(cex::command_view).enter("Open File From Project", submit, suggest, cancel)
@@ -171,8 +208,16 @@ fn load_commands_core() {
 			submit := fn(text: str, _: ^cex::Suggestion) {
 				rv(cex::root_view).open_doc(open_doc(text))
 			}
+			suggest := fn(text: str): []cex::Suggestion {
+				matches := common::path_suggest(text)
+				res := make([]cex::Suggestion, len(matches))
+				for i in matches {
+					res[i] = {text: matches[i]}
+				}
+				return res
+			}
 			cancel := fn(_: bool){}
-			cv(cex::command_view).enter("Open File", submit, common::path_suggest, cancel)
+			cv(cex::command_view).enter("Open File", submit, suggest, cancel)
 		},
 
 		"core:open-log": fn() {
@@ -196,8 +241,6 @@ fn load_commands_core() {
 		},
 	})
 }
-
-fn doc(): ^doc::Doc { return dv(cex::active_view).doc }
 
 fn get_indent_string(): str {
 	if config::tab_type == "hard" {
@@ -235,7 +278,7 @@ fn append_line_if_last_line(line: int) {
 	}
 }
 
-fn save(filename: str) {
+fn save(filename: str = "") {
 	doc().save(filename)
 	cex::log_info(sprintf("Saved \"%s\"", doc().filename))
 }
@@ -303,7 +346,7 @@ fn load_commands_doc() {
 					return
 				}
 			}
-				doc().delete_to(translate::previous_char)
+			doc().delete_to(translate::previous_char)
 		},
 		"doc:select-all": fn () {
 			doc().set_selection(0, 0, env::INT_MAX, env::INT_MAX)
@@ -379,44 +422,42 @@ fn load_commands_doc() {
 				doc().set_selection(line1 - 1, col1, line2 - 1, col2, swap)
 			}
 		},
-		// "doc:move-lines-down": fn () {
-		// 	line1, col1, line2, col2, swap := doc().get_selection(true)
-		// 		append_line_if_last_line(line2 + 1)
-		// 		if line2 < #doc().lines {
-		// 	text := doc().lines[line2 + 1]
-		// 			doc().remove(line2 + 1, 1, line2 + 2, 1)
-		// 			doc().insert(line1, 1, text)
-		// 			doc().set_selection(line1 + 1, col1, line2 + 1, col2, swap)
-		// 	}
-		// 	},
-
-		// "doc:toggle-line-comments": fn () {
-		// 	comment := doc().syntax.comment
-		// 		if not comment { return}
-		// 	comment_text := comment .. " "
-		// 	line1, _, line2 := doc().get_selection(true)
-		// 	uncomment := true
-		// 		for line = line1, line2 {
-		// 	text := doc().lines[line]
-		// 			if text:find("%S") and text:find(comment_text, 1, true) ~= 1 {
-		// 				uncomment = false
-		// 		 }
-		// 	}
-		// 		if uncomment {
-		// 			remove_from_start_of_selected_lines(comment_text, true)
-		// 		} else {
-		// 			insert_at_start_of_selected_lines(comment_text, true)
-		// 	}
-		// 	},
-
-		// "doc:upper-case": fn () {
-		// 		doc().replace(string.upper)
-		// 	},
-
-		// "doc:lower-case": fn () {
-		// 		doc().replace(string.lower)
-		// 	},
-
+		"doc:move-lines-down": fn () {
+			sel, swap := doc().get_selection(true)
+			line1, col1, line2, col2 := sel.a.line, sel.a.col, sel.b.line, sel.b.col
+			append_line_if_last_line(line2 + 1)
+			if line2 < len(doc().lines)-1 {
+				text := doc().lines[line2 + 1]
+				doc().remove(line2 + 1, 0, line2 + 2, 0)
+				doc().insert(line1, 0, text)
+				doc().set_selection(line1 + 1, col1, line2 + 1, col2, swap)
+			}
+		},
+		"doc:toggle-line-comments": fn () {
+			comment := doc().syntax.comment
+			if len(comment) == 0 { return }
+			comment_text := comment + " "
+			sel := doc().get_selection(true).item0
+			line1, line2 := sel.a.line, sel.b.line
+			uncomment := true
+			for line := line1; line <= line2; line++ {
+				text := doc().lines[line]
+				if strings::find(text, "%S").item2 && strings::find(text, comment_text, 0, true).item0 != 0 {
+						uncomment = false
+				 }
+			}
+			if uncomment {
+				remove_from_start_of_selected_lines(comment_text, true)
+			} else {
+				insert_at_start_of_selected_lines(comment_text, true)
+			}
+		},
+		"doc:upper-case": fn () {
+			doc().replace(fn(s: str): (str, int) { return strings::upper(s), len(s) })
+		},
+		"doc:lower-case": fn () {
+			doc().replace(fn(s: str): (str, int) { return strings::lower(s), len(s) })
+		},
 		// "doc:go-to-line": fn () {
 		// 	dv := dv()
 
@@ -448,26 +489,30 @@ fn load_commands_doc() {
 		// 	})
 		// 	},
 
-		// "doc:toggle-line-ending": fn () {
-		// 		doc().crlf = not doc().crlf
-		// 	},
-
-		// "doc:save-as": fn () {
-		// 		if doc().filename {
-		// 			state::core.command_view:set_text(doc().filename)
-		// 	}
-		// 		state::core.command_view:enter("Save As", fn (filename) {
-		// 			save(filename)
-		// 	}, common.path_suggest)
-		// 	},
-
-		// "doc:save": fn () {
-		// 		if doc().filename {
-		// 			save()
-		// 		else
-		// 			command.perform("doc:save-as")
-		// 	}
-		// 	},
+		"doc:toggle-line-ending": fn () { doc().crlf = !doc().crlf },
+		"doc:save-as": fn () {
+			if len(doc().filename) > 0 {
+				cv(cex::command_view).set_text(doc().filename)
+			}
+			suggest := fn(text: str): []cex::Suggestion {
+				matches := common::path_suggest(text)
+				res := make([]cex::Suggestion, len(matches))
+				for i in matches {
+					res[i] = {text: matches[i]}
+				}
+				return res
+			}
+			cv(cex::command_view).enter("Save As", fn (filename: str, _: ^cex::Suggestion) {
+					save(filename)
+			}, suggest, fn(_:bool) {})
+		},
+		"doc:save": fn () {
+			if len(doc().filename) > 0 {
+				save()
+			} else {
+				command::perform("doc:save-as")
+			}
+		},
 
 		// "doc:rename": fn () {
 		// 	old_filename := doc().filename
@@ -541,7 +586,7 @@ fn load_commands_doc() {
 		}
 	}
 
-	command::add(has_docview, commands)
+	command::add(has_doc, commands)
 }
 
 // max_previous_finds := 50
@@ -707,109 +752,100 @@ fn load_commands_doc() {
 
 // }
 
-// t := map[str]fn(){
-// 	"root:close": fn() {
-// node := core.root_view:get_active_node()
-// 		node:close_active_view(core.root_view.root_node)
-// },
+fn load_commands_root() {
+	t := map[str]fn(){
+		"root:close": fn() {
+			node := rv(cex::root_view).get_active_node()
+			node.close_active_view(rv(cex::root_view).root_node)
+		},
+		"root:switch-to-previous-tab": fn() {
+			node := rv(cex::root_view).get_active_node()
+			idx := node.get_view_idx(cex::active_view)
+			idx = idx - 1
+			if idx < 0 { idx = len(node.views)-1 }
+			node.set_active_view(node.views[idx])
+		},
+		"root:switch-to-next-tab": fn() {
+			node := rv(cex::root_view).get_active_node()
+			idx := node.get_view_idx(cex::active_view)
+			idx = idx + 1
+			if idx >= len(node.views) { idx = 0 }
+			node.set_active_view(node.views[idx])
+		},
+		"root:move-tab-left": fn() {
+			node := rv(cex::root_view).get_active_node()
+			idx := node.get_view_idx(cex::active_view)
+			if idx > 0 {
+				node.views = delete(node.views, idx)
+				node.views = insert(node.views, idx - 1, cex::active_view)
+			}
+		},
+		"root:move-tab-right": fn() {
+			node := rv(cex::root_view).get_active_node()
+			idx := node.get_view_idx(cex::active_view)
+			if idx < len(node.views)-1 {
+				node.views = delete(node.views, idx)
+				node.views = insert(node.views, idx + 1, cex::active_view)
+			}
+		},
+		"root:shrink": fn() {
+			node := rv(cex::root_view).get_active_node()
+			parent := node.get_parent_node(rv(cex::root_view).root_node)
+			n := (parent.a == node)? -0.1 : 0.1
+			parent.divider = common::fclamp(parent.divider + n, 0.1, 0.9)
+		},
+		"root:grow": fn() {
+			node := rv(cex::root_view).get_active_node()
+			parent := node.get_parent_node(rv(cex::root_view).root_node)
+			n := (parent.a == node)? 0.1 : -0.1
+			parent.divider = common::fclamp(parent.divider + n, 0.1, 0.9)
+		},
+	}
 
-// 	"root:switch-to-previous-tab": fn() {
-// node := core.root_view:get_active_node()
-// idx := node:get_view_idx(core.active_view)
-// 		idx = idx - 1
-// 		if idx < 1 { idx = #node.views}
-// 		node:set_active_view(node.views[idx])
-// },
+	for i := 1; i<=9; i++ {
+		t["root:switch-to-tab-" + std::itoa(i)] = fn() |i| {
+			node := rv(cex::root_view).get_active_node()
+			if i < len(node.views) { node.set_active_view(node.views[i]) }
+		}
+	}
 
-// 	"root:switch-to-next-tab": fn() {
-// node := core.root_view:get_active_node()
-// idx := node:get_view_idx(core.active_view)
-// 		idx = idx + 1
-// 		if idx > #node.views { idx = 1}
-// 		node:set_active_view(node.views[idx])
-// },
+	for _, dir in []str{ "left", "right", "up", "down" } {
+		t["root:split-" + dir] = fn() |dir| {
+			node := rv(cex::root_view).get_active_node()
+			av := node.active_view
+			node.split(dir, null)
+			if is_docview(av) {
+				rv(cex::root_view).open_doc(dv(av).doc)
+			}
+		}
 
-// 	"root:move-tab-left": fn() {
-// node := core.root_view:get_active_node()
-// idx := node:get_view_idx(core.active_view)
-// 		if idx > 1 {
-// 			table.remove(node.views, idx)
-// 			table.insert(node.views, idx - 1, core.active_view)
-// }
-// },
+		t["root:switch-to-" + dir] = fn() |dir| {
+			node := rv(cex::root_view).get_active_node()
+			var x, y: real
+			if dir == "left" || dir == "right" {
+				y = node.position.y + node.size.y / 2
+				x = node.position.x + ((dir == "left")? -1.0 : (node.size.x + style::divider_size))
+			} else {
+				x = node.position.x + node.size.x / 2
+				y = node.position.y + ((dir == "up")? -1.0 : (node.size.y + style::divider_size))
+			}
+			node = rv(cex::root_view).root_node.get_child_overlapping_point(x, y)
+			if !node.get_locked_size().item2 {
+				cex::set_active_view(node.active_view)
+			}
+		}
+	}
 
-// 	"root:move-tab-right": fn() {
-// node := core.root_view:get_active_node()
-// idx := node:get_view_idx(core.active_view)
-// 		if idx < #node.views {
-// 			table.remove(node.views, idx)
-// 			table.insert(node.views, idx + 1, core.active_view)
-// }
-// },
-
-// 	"root:shrink": fn() {
-// node := core.root_view:get_active_node()
-// parent := node:get_parent_node(core.root_view.root_node)
-// n := (parent.a == node) and -0.1 or 0.1
-// 		parent.divider = common.clamp(parent.divider + n, 0.1, 0.9)
-// },
-
-// 	"root:grow": fn() {
-// node := core.root_view:get_active_node()
-// parent := node:get_parent_node(core.root_view.root_node)
-// n := (parent.a == node) and 0.1 or -0.1
-// 		parent.divider = common.clamp(parent.divider + n, 0.1, 0.9)
-// },
-// }
-
-// fn load_commands_root*() {
-// for i = 1, 9 do
-// 	t["root:switch-to-tab-" .. i] = fn() {
-// node := core.root_view:get_active_node()
-// view := node.views[i]
-// 		if view {
-// 			node:set_active_view(view)
-// }
-// }
-// }
-
-
-// for _, dir in ipairs { "left", "right", "up", "down" } {
-// 	t["root:split-" .. dir] = fn() {
-// node := core.root_view:get_active_node()
-// av := node.active_view
-// 		node:split(dir)
-// 		if av:is(DocView) {
-// 			core.root_view:open_doc(av.doc)
-// }
-// }
-
-// 	t["root:switch-to-" .. dir] = fn() {
-// node := core.root_view:get_active_node()
-// x, y
-// 		if dir :== "left" or dir == "right" {
-// 			y = node.position.y + node.size.y / 2
-// 			x = node.position.x + (dir == "left" and -1 or node.size.x + style.divider_size)
-// 		else
-// 			x = node.position.x + node.size.x / 2
-// 			y = node.position.y + (dir == "up"   and -1 or node.size.y + style.divider_size)
-// }
-// node := core.root_view.root_node:get_child_overlapping_point(x, y)
-// 		if not node:get_locked_size() {
-// 			core.set_active_view(node.active_view)
-// }
-// }
-// }
-
-// command.add(fn() {
-// node := core.root_view:get_active_node()
-// 	return not node:get_locked_size()
-// }, t)
-// }
+	command::add(fn(): bool {
+		node := rv(cex::root_view).get_active_node()
+		return !node.get_locked_size().item2
+	}, t)
+}
 
 
 fn load_default_commands*() {
 	load_commands_doc()
 	load_commands_core()
 	load_commands_command()
+	load_commands_root()
 }

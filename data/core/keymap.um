@@ -13,7 +13,7 @@ var (
 fn key_to_stroke(k: str): str {
 	stroke := ""
 	for _, mk in modkeys_list {
-		if validkey(modkeys, mk) {
+		if validkey(modkeys, mk) && modkeys[mk] {
 			stroke = stroke + mk + "+"
 		}
 	}

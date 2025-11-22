@@ -79,13 +79,13 @@ fn (self: ^CommandView) try_close*(do_close: fn()) {
 				do_close()
 			}
 		}
-		suggest := fn(text: str): []str {
-			items := make([]str, 0)
+		suggest := fn(text: str): []cex::Suggestion {
+			items := make([]cex::Suggestion, 0)
 			if !strings::find(text, "^[^cC]").item2 {
-				items = append(items, "Close Without Saving")
+				items = append(items, {text:"Close Without Saving"})
 			}
 			if !strings::find(text, "^[^sS]").item2 {
-				items = append(items, "Save && Close")
+				items = append(items, {text:"Save && Close"})
 			}
 			return items
 		}
@@ -298,15 +298,13 @@ fn (self: ^CommandView) submit*() {
 }
 
 fn (self: ^CommandView) update_suggestions*() {
-	t := self.state.suggest(self.get_text())
-	res := make([]cex::Suggestion, 0)
-	for i, item in t {
-		if i == max_suggestions {
-			break
-		}
-		res = append(res, {text: item})
+	var t: []cex::Suggestion
+	if valid(self.state.suggest) {
+		t = self.state.suggest(self.get_text())
+	} else {
+		t = {}
 	}
-	self.suggestions = res
+	self.suggestions = slice(t, 0, common::imin(len(t), max_suggestions))
 	self.suggestion_idx = 0
 }
 
@@ -343,7 +341,7 @@ fn (self: ^CommandView) dv_update*() {
 fn (self: ^CommandView) update*() {
 	self.dv_update()
 
-	if self.is_active_view() && self.state.filled {
+	if !self.is_active_view() && self.state.filled {
 		self.exit(false, true)
 	}
 
@@ -370,7 +368,7 @@ fn (self: ^CommandView) update*() {
 	view::move_towards(&self.suggestions_height, dest)
 
 	// -- update suggestion cursor offset
-	dest = self.suggestion_idx * self.get_suggestion_line_height()
+	dest = (self.suggestion_idx+1) * self.get_suggestion_line_height()
 	view::move_towards(&self.selection_offset, dest)
 
 	// -- update size based on whether this is the active_view
@@ -423,7 +421,7 @@ fn draw_suggestions_box(self: ^CommandView) {
 	cex::push_clip_rect(rx, ry, rw, rh)
 	for i, item^ in self.suggestions {
 		color := (i == self.suggestion_idx)? style::accent : style::text
-		y := position.y - i * lh - dh
+		y := position.y - (i+1) * lh - dh
 		common::draw_text(self.dv_get_font(), color, item.text, "", x, y, 0, lh)
 
 		if len(item.info) > 0 {

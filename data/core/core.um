@@ -32,7 +32,7 @@ fn diff_files(a, b: []system::FileInfo): bool  {
 // 	return a.filename < b.filename
 // }
 
-fn get_files(path: str, t: []system::FileInfo) {
+fn get_files(path: str, t: []system::FileInfo): []system::FileInfo {
 	size_limit := config::file_size_limit * 10e5
 	all := system::list_dir(path)
 	dirs, files := make([]system::FileInfo, 0), make([]system::FileInfo, 0)
@@ -57,14 +57,16 @@ fn get_files(path: str, t: []system::FileInfo) {
 	for _, f in files {
 		t = append(t, f)
 	}
+	return t
 }
 
 fn project_scan_thread() {
 	for true {
+		if cex::quit_request { break }
 	//   -- get project files and replace previous table if the new table is
 	//   -- different
 		t := make([]system::FileInfo, 0)
-		get_files(".", t)
+		t = get_files(".", t)
 		if diff_files(cex::project_files, t) {
 			cex::project_files = t
 			cex::redraw = true
@@ -161,7 +163,6 @@ fn init*() {
 	rv().root_node.b.split("down", cex::status_view, true)
 
 	cex::add_thread(project_scan_thread, config::project_scan_rate)
-	// command::add_defaults()
 
 	got_plugin_error := !load_plugins()
 	got_user_error := false //!try(require, "user")
@@ -230,10 +231,6 @@ fn on_event(typ, s: str, a, b, c, d: real): bool {
 	return did_keymap
 }
 
-fn raw_log(t: str) {
-	printf("[%v] %s\n", system::get_time(), t)
-}
-
 type Mouse = struct {
 	x,y,dx,dy: real;
 }
@@ -245,10 +242,7 @@ fn step(): bool {
 		mouse_moved: bool = false
 		mouse: Mouse
 	)
-	// raw_log("\tPOLLEVENTS")
-	events := system::poll_event()
-	
-	for _, e^ in events {
+	for _, e^ in system::poll_event() {
 		if e.etype == "mousemoved" {
 			mouse_moved = true
 			mouse.x, mouse.y = e.a, e.b
@@ -262,12 +256,10 @@ fn step(): bool {
 		}
 		cex::redraw = true
 	}
-	// raw_log("\tMOUSEMOVED")
 	if mouse_moved {
 		// NOTE use try
 		on_event("mousemoved", "", mouse.x, mouse.y, mouse.dx, mouse.dy)
 	}
-	// raw_log("\tUPDATE")
 
 	width, height := renderer::get_size()
 	// -- update
@@ -276,7 +268,6 @@ fn step(): bool {
 	if !cex::redraw { return false }
 	cex::redraw = false
 
-	// raw_log("\tCLOSE_DOCS")
 	// -- close unreferenced docs
 	for i := len(cex::docs)-1; i >=0 ; i-- {
 		d := ^doc::Doc(cex::docs[i])
@@ -286,7 +277,6 @@ fn step(): bool {
 		}
 	}
 
-	// raw_log("\tTITLE")
 	// -- update window title
 	name := cex::active_view.get_name()
 	title := (name != "---")? (name + " - lite") :  "lite"
@@ -295,8 +285,6 @@ fn step(): bool {
 		cex::window_title = title
 	}
 
-
-	// raw_log("\tDRAW")
 	// -- draw
 	renderer::begin_frame()
 	cex::clip_rect_stack[0] = { 0, 0, width, height }
@@ -306,10 +294,10 @@ fn step(): bool {
 	return true
 }
 
-fn run_threads() {
+fn run_threads(): bool {
 	// this runs in main thread
 	max_time := 1.0 / config::fps - 0.004
-	// ran_any_threads := false
+	ran_any_threads := false
 
 	for k := len(cex::threads)-1; k>=0; k-- {
 		thread := &cex::threads[k]
@@ -317,7 +305,7 @@ fn run_threads() {
 			if thread.wake < system::get_time() {
 				resume(thread.fib)
 				thread.wake = system::get_time() + thread.wait
-				// ran_any_threads = true
+				ran_any_threads = true
 			}
 		} else {
 			cex::threads = delete(cex::threads, k)
@@ -325,22 +313,24 @@ fn run_threads() {
 
 		//     -- stop running threads if we're about to hit the} of frame
 		if system::get_time() - cex::frame_start > max_time {
-			return
+			break
 		}
 	}
-	// if !ran_any_threads { resume() }
+	return ran_any_threads
 }
 
 fn run*() {
 	for true {
-		raw_log("RUN")
-		printf("ACTIVE %s\n", cex::active_view.get_debug())
+		// raw_log("RUN")
+		// printf("ACTIVE %s\n", cex::active_view.get_debug())
+		// cex::periodic("RV_TREE", 1, fn(){
+		// 	rootview::print_tree(rv().root_node)
+		// })
 		if cex::quit_request {
 			break
 		}
 		cex::frame_start = system::get_time()
 		did_redraw := step()
-		// raw_log("STEP")
 		run_threads()
 		if !did_redraw && !system::window_has_focus() {
 			system::wait_event(0.25)
@@ -348,6 +338,9 @@ fn run*() {
 		elapsed := system::get_time() - cex::frame_start
 		system::sleep(common::fmax(0.0, 1.0 / config::fps - elapsed))
 	}
+
+	// NOTE - is this corrent ? QUITING fibers
+	for run_threads() {}
 }
 
 // fn on_error(err) {

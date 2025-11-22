@@ -170,7 +170,7 @@ umka_main :: proc(argc: i32, argv: []^u8) {
 
 	U := umka.Alloc()
 	// odinfmt: disable
-	ok := umka.Init(U, nil, umka_code, 1024 * 1024, nil, argc, raw_data(argv), true, false, umka.PrintCompileWarning)
+	ok := umka.Init(U, "main.um", umka_code, 1024 * 1024, nil, argc, raw_data(argv), true, false, umka.PrintCompileWarning)
 	// odinfmt: enable
 
 	if ok do ok = add_constants(U)

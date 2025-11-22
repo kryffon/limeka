@@ -100,7 +100,7 @@ fn type_map(dir: str): str {
 	return ""
 }
 
-fn (self: ^Node) split*(dir: str, view: cex::View, locked: bool): ^Node {
+fn (self: ^Node) split*(dir: str, view: cex::View, locked: bool = false): ^Node {
 	std::assert(self.typ == "leaf", "Tried to split non-leaf node")
 	typ := type_map(dir)
 	std::assert(len(typ) > 0, "Invalid direction")
@@ -260,11 +260,11 @@ fn (self: ^Node) get_child_overlapping_point*(x, y: real): ^Node {
 // -- axis are swapped; this function lets us use the same code for both
 fn calc_split_sizes(self: ^Node, flip: bool, x1, x2: real, ok1, ok2: bool) {
 	var n: real
-	ds := (ok1 && x1 < 1 || ok2 && x2 < 1)? 0.0 : style::divider_size
+	ds := ((ok1 && x1 < 1) || (ok2 && x2 < 1))? 0.0 : style::divider_size
 	if ok1 {
 		n = x1 + ds
 	} else if ok2 {
-		n = self.size.x - x2
+		n = (flip? self.size.y : self.size.x) - x2
 	} else {
 		sx := flip ? self.size.y : self.size.x
 		n = floor(sx * self.divider)

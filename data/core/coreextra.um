@@ -18,11 +18,11 @@ type (
 	}
 	
 	Suggestion* = struct {
-		text, info: str;
+		text, info, command: str;
 	}
 
 	SubmitFunc* = fn(text: str, item: ^Suggestion)
-	SuggestFunc* = fn(text: str): []str
+	SuggestFunc* = fn(text: str): []Suggestion
 	CancelFunc* = fn(a: bool)
 
 	View* = interface {
@@ -181,3 +181,18 @@ fn pop_clip_rect*() {
 fn init*() {
 	init_tmpfiles()
 }
+
+// periodic logging
+var wake: map[str]real
+fn periodic*(tag: str, wait: real, f: fn()) {
+	if !validkey(wake, tag) || wake[tag] < system::get_time() {
+		printf("[%v]PERIODIC: %s\n", system::get_time(), tag)
+		f()
+		wake[tag] = system::get_time() + wait
+	}
+}
+
+fn raw_log*(t: str) {
+	printf("[%v] %s\n", system::get_time(), t)
+}
+

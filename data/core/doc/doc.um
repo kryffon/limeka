@@ -77,6 +77,7 @@ fn (self: ^Highlighter) tokenize_line*(idx: int, state: int): LineTokens {
 // NOTE should it be weak ref?
 fn highlighter_thread*(self: ^Highlighter) {
 	for true {
+		if cex::quit_request { break }
 		if self.quit { break }
 		if self.first_invalid_line > self.max_wanted_line {
 			self.max_wanted_line = 0
@@ -161,7 +162,7 @@ fn splice(t: ^[]str, at, remove: int, insert: []str) {
 		}
 	}
 	for i, item in insert {
-		t^[at+i-1] = item
+		t^[at+i] = item
 	}
 }
 
@@ -322,7 +323,7 @@ fn (self: ^Doc) raw_insert*(line, col: int, text: str, undo_stack: ^Stack, time:
 	lines := split_lines(text)
 	before := slice(self.lines[line], 0, col)
 	after := slice(self.lines[line], col)
-	for i in lines {
+	for i := 0; i<len(lines)-1; i++ {
 		lines[i] = lines[i] + "\n"
 	}
 	lines[0] = before + lines[0]
