@@ -6,6 +6,7 @@ import "core:c/libc"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:sort"
 import "core:strings"
 import "core:time"
 
@@ -430,6 +431,9 @@ list_dir_helper :: proc(U: umka.Context, path: cstring, filelist: ^[dynamic]File
 
 	entries, err2 := os.read_dir(handle, -1, context.temp_allocator)
 	if err2 != nil do return
+	sort.heap_sort_proc(entries[:], proc(a, b: os.File_Info) -> int {
+		return sort.compare_strings(a.name, b.name)
+	})
 
 	for e, _ in entries {
 		if e.name == "." || e.name == ".." {

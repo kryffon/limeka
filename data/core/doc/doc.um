@@ -141,29 +141,30 @@ fn (self: ^Doc) line_tokens*(idx: int): []tokenizer::Token {
 }
 
 fn split_lines(text: str): []str {
+	text += '\n'
 	res := make([]str, 0)
-	for _, line in strings::gmatch(text + "\n", "(.-)\n") {
-		res = append(res, line[0])
+	start := 0
+	for i in text {
+		if text[i] == '\n' {
+			res = append(res, slice(text, start, i))
+			start = i+1
+		}
 	}
 	return res
 }
 
 // insert into lines while remove some if given given
-fn splice(t: ^[]str, at, remove: int, insert: []str) {
-	offset := len(insert) - remove
-	old_len := len(t^)
-	if offset < 0 {
-		for i:=at-offset; i<=old_len-offset; i++ {
-			t^[i+offset] = t^[i]
-		}
-	} else if offset > 0 {
-		for i:=old_len; i>=at; i-- {
-			t^[i+offset] = t^[i]
-		}
+fn splice(t: []str, at, remove: int, insert_arr: []str): []str {
+	at = common::iclamp(at, 0, len(t))
+	remove = common::imin(at + remove, len(t))
+	if at == 0 {
+		return append(insert_arr, slice(t, remove))
+	} else if at == len(t) {
+		return append(t, insert_arr)
 	}
-	for i, item in insert {
-		t^[at+i] = item
-	}
+	res := slice(t, 0, at)
+    res = append(res, insert_arr)
+    return append(res, slice(t, remove))
 }
 
 fn (self: ^Doc) get_change_id*(): int {
@@ -330,7 +331,7 @@ fn (self: ^Doc) raw_insert*(line, col: int, text: str, undo_stack: ^Stack, time:
 	lines[len(lines)-1] += after
 
 	// -- splice lines into line array
-	splice(&self.lines, line, 1, lines)
+	self.lines = splice(self.lines, line, 1, lines)
 
 	// -- push undo
 	line2, col2 := self.position_offset(line, col, noop, len(text))
@@ -355,7 +356,7 @@ fn (self: ^Doc) raw_remove*(line1, col1, line2, col2: int, undo_stack: ^Stack, t
 	after := slice(self.lines[line2], col2)
 
 	// -- splice line into line array
-	splice(&self.lines, line1, line2 - line1 + 1, { before + after })
+	self.lines = splice(self.lines, line1, line2 - line1 + 1, { before + after })
 
 	// -- update highlighter and assure selection is in bounds
 	self.highlighter.invalidate(line1)
@@ -497,9 +498,21 @@ fn (self: ^Doc) reset_syntax*() {
 	}
 }
 
+fn (self: ^Doc) reset*() {
+	self.lines = {"\n"}
+	self.selection = {}
+	self.undo_stack = {}
+	self.redo_stack = {}
+	self.clean_change_id = 0
+	self.highlighter = get_new_highlighter(self)
+	self.reset_syntax()
+}
+
 fn (self: ^Doc) load*(filename: str) {
 	fp, err := std::fopen(filename, "rb")
 	std::exitif(err)
+	self.reset()
+	self.filename = filename
 	self.lines, self.crlf = freadlines(fp)
 	if len(self.lines) == 0 {
 		self.lines = {"\n"}
@@ -525,15 +538,6 @@ fn (self: ^Doc) save*(filename: str = "") {
 	self.clean()
 }
 
-fn (self: ^Doc) reset*() {
-	self.lines = {"\n"}
-	self.selection = {}
-	self.undo_stack = {}
-	self.redo_stack = {}
-	self.clean_change_id = 0
-	self.highlighter = get_new_highlighter(self)
-	self.reset_syntax()
-}
 
 fn get_new*(filename: str): ^Doc {
 	self := new(Doc)

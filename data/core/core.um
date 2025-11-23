@@ -33,16 +33,18 @@ fn diff_files(a, b: []system::FileInfo): bool  {
 // }
 
 fn get_files(path: str, t: []system::FileInfo): []system::FileInfo {
+	trim_path := (path == ".")? "" : (slice(path, 2) + env::PATHSEP)
+		
 	size_limit := config::file_size_limit * 10e5
 	all := system::list_dir(path)
 	dirs, files := make([]system::FileInfo, 0), make([]system::FileInfo, 0)
 	for _, info in all {
 		if !common::match_pattern(info.name, []str{config::ignore_files}).item2 {
-			// info.name = ((path != ".")? path + env::PATHSEP : "") + info.name
 			if info.size < size_limit {
 				if info.is_dir {
 					dirs = append(dirs, info)
 				} else {
+					info.name = trim_path + info.name
 					files = append(files, info)
 				}
 			}
@@ -51,7 +53,7 @@ fn get_files(path: str, t: []system::FileInfo): []system::FileInfo {
 	// table.sort(dirs, compare_file)
 	for _, f in dirs {
 		t = append(t, f)
-		get_files(f.name, t)
+		t = get_files(path + env::PATHSEP + f.name, t)
 	}
 	// table.sort(files, compare_file)
 	for _, f in files {
@@ -294,7 +296,7 @@ fn step(): bool {
 	return true
 }
 
-fn run_threads(): bool {
+fn run_threads(nowait: bool = false): bool {
 	// this runs in main thread
 	max_time := 1.0 / config::fps - 0.004
 	ran_any_threads := false
@@ -302,7 +304,7 @@ fn run_threads(): bool {
 	for k := len(cex::threads)-1; k>=0; k-- {
 		thread := &cex::threads[k]
 		if valid(thread.fib) {
-			if thread.wake < system::get_time() {
+			if thread.wake < system::get_time() || nowait {
 				resume(thread.fib)
 				thread.wake = system::get_time() + thread.wait
 				ran_any_threads = true
@@ -312,7 +314,7 @@ fn run_threads(): bool {
 		}
 
 		//     -- stop running threads if we're about to hit the} of frame
-		if system::get_time() - cex::frame_start > max_time {
+		if system::get_time() - cex::frame_start > max_time && !nowait {
 			break
 		}
 	}
@@ -339,8 +341,11 @@ fn run*() {
 		system::sleep(common::fmax(0.0, 1.0 / config::fps - elapsed))
 	}
 
-	// NOTE - is this corrent ? QUITING fibers
-	for run_threads() {}
+	// NOTE - is this correct ? QUITING fibers
+	for len(cex::threads) > 0 {
+		cex::raw_log(sprintf("THREADS: %v", len(cex::threads)))
+		run_threads(true)
+	}
 }
 
 // fn on_error(err) {

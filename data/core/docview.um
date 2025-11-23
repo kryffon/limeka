@@ -56,8 +56,8 @@ fn (self: ^DocView) get_debug*(): str {
 fn (self: ^DocView) get_name*(): str {
 	post := (self.doc.is_dirty())? "*" : ""
 	name := self.doc.get_name()
-	m := strings::match(name, "[^/%\\]*$")
-	return m[0] + post
+	name = common::basename(name)
+	return name + post
 }
 
 fn (self: ^DocView) get_cursor*(): str {
@@ -167,6 +167,7 @@ fn (self: ^DocView) get_visible_line_range*(): (int, int) {
 }
 
 fn (self: ^DocView) get_col_x_offset*(line, col: int): int {
+	if line < 0 || line >= len(self.doc.lines) { return 0 }
 	text := self.doc.lines[line]
 	if len(text) == 0 { return 0 }
 	return renderer::font_get_width(self.get_font(), slice(text, 0, col))

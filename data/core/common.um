@@ -40,7 +40,7 @@ fn is_utf8_cont*(c: char): bool {
 	return int(c) >= 0x80 && int(c) < 0xc0
 }
 
-fn utf8_chars*(text: str): []str {
+fn utf8_chars_fail(text: str): []str {
 	pattern := "["
 	pattern += char(0x00)
 	pattern += "-"
@@ -59,6 +59,32 @@ fn utf8_chars*(text: str): []str {
 	res := make([]str, len(matches))
 	for i, m in matches {
 		res[i] = m[0]
+	}
+	return res
+}
+
+fn utf8_chars*(text: str): []str {
+	res := make([]str, 0)
+	found_star := false
+	start:= -1
+	for i in text {
+		c := int(text[i])
+		if found_star {
+			if !(0x80 <= c && c <= 0xbf) {
+				res = append(res, slice(text, start, i))
+				found_star = false
+			} else {
+				continue
+			}
+		}
+		if (0x00 <= c && c <= 0x7f) || (0xc2 <= c && c <= 0xf4) {
+			start = i
+			if i+1 < len(text) && 0x80 <= int(text[i+1]) && int(text[i+1]) <= 0xbf {
+				found_star = true				
+			} else {
+				res = append(res, slice(text, start, start+1))
+			}
+		}
 	}
 	return res
 }
@@ -252,4 +278,13 @@ fn bench*(name: str, func: fn(args: ..any): any, args: ..any): any {
 	per := ms * 6.0
 	printf("*** %-16s : %8.3fms %6.2f%%\n", name, ms, per)
 	return res
+}
+
+fn basename*(path: str): str {
+	for i:=len(path)-1; i>=0; i-- {
+		if path[i] == env::PATHSEP {
+			return slice(path, i+1)
+		}
+	}
+	return path
 }

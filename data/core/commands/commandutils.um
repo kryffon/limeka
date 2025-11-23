@@ -131,7 +131,7 @@ fn open_doc*(filename: str = ""): ^doc::Doc {
 fn load_commands_core() {
 	command::add(command::always_true, {
 		"core:quit": fn() { quit() },
-		"core:force-quit": fn() { quit() },
+		"core:force-quit": fn() { quit(true) },
 		"core:toggle-fullscreen": fn() {
 			fullscreen = !fullscreen
 			system::set_window_mode(fullscreen ? "fullscreen" : "normal")
@@ -158,7 +158,7 @@ fn load_commands_core() {
 			commands := command::get_all_valid()
 			submit := fn(text: str, item: ^cex::Suggestion) {
 				if item != null {
-					command::perform(item.text)
+					command::perform(item.command)
 				}
 			}
 			suggest := fn(text: str): []cex::Suggestion |commands| {
@@ -308,8 +308,9 @@ fn load_commands_doc() {
 		"doc:newline": fn () {
 			sel := doc().get_selection().item0
 			line, col := sel.a.line, sel.a.col
-			indent := strings::match(doc().lines[line], "^[\t ]*")[0]
-			if col <= len(indent) {
+			matches := strings::match(doc().lines[line], "^[\t ]*")
+			indent := (len(matches) > 0)? matches[0] : ""
+			if len(indent) > 0 && col <= len(indent) {
 				indent = slice(indent, len(indent) + 2 - col)
 			}
 			doc().text_input("\n" + indent)
@@ -317,14 +318,16 @@ fn load_commands_doc() {
 		"doc:newline-below": fn () {
 			sel := doc().get_selection().item0
 			line := sel.a.line
-			indent := strings::match(doc().lines[line], "^[\t ]*")[0]
+			matches := strings::match(doc().lines[line], "^[\t ]*")
+			indent := (len(matches) > 0)? matches[0] : ""
 			doc().insert(line, env::INT_MAX, "\n" + indent)
 			doc().set_selection(line + 1, env::INT_MAX)
 		},
 		"doc:newline-above": fn () {
 			sel := doc().get_selection().item0
 			line := sel.a.line
-			indent := strings::match(doc().lines[line], "^[\t ]*")[0]
+			matches := strings::match(doc().lines[line], "^[\t ]*")
+			indent := (len(matches) > 0)? matches[0] : ""
 			doc().insert(line, 0, indent + "\n")
 			doc().set_selection(line, env::INT_MAX)
 		},

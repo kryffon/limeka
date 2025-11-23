@@ -56,14 +56,14 @@ fn (self: ^Node) get_tab_rect*(idx: int): (real, real, real, real) {
 	vl = (vl == 0)? env::INT_MAX : vl
 	tw := common::fmin(style::tab_width, ceil(self.size.x / vl))
 	h := renderer::font_get_height(style::font) + style::padding.y * 2
-	return self.position.x + (idx-1) * tw, self.position.y, tw, h
+	return self.position.x + (idx) * tw, self.position.y, tw, h
 }
 
 fn (self: ^Node) get_tab_overlapping_point*(px, py: real): int {
 	if len(self.views) == 1 { return -1 }
-	x, y, w, h := self.get_tab_rect(1)
+	x, y, w, h := self.get_tab_rect(0)
 	if px >= x && py >= y && px < x + w * len(self.views) && py < y + h {
-		return floor((px - x) / w) + 1
+		return floor((px - x) / w)
 	}
 	return -1
 }
