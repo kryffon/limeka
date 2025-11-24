@@ -54,15 +54,6 @@ type (
 	}
 )
 
-// 	position, size: cex::Vec2;
-// 	scroll: cex::Scroll;
-// 	cursor: str;
-// 	scrollable: bool;
-// 	hovered_scrollbar: bool;
-// 	dragging_scrollbar: bool;
-
-// 	self.cursor = "arrow"
-
 var (
 	frame_start*: real
 	clip_rect_stack*: []common::Rect
@@ -70,6 +61,7 @@ var (
 	docs*: []any;
 	threads*: []Thread
 	project_files*: []system::FileInfo
+	project_files_changed*: real
 	redraw*: bool = false
 
 	root_view*: View
@@ -78,8 +70,6 @@ var (
 	
 	active_view*: View
 	last_active_view*: View
-
-	package_loaded*: map[str]any
 
 	temp_uid*: int
 	temp_file_prefix*: str
@@ -91,6 +81,7 @@ var (
 	count_views_referencing_doc*: fn(doc: any): int
 	command_view_enter*: fn(text: str, submit: SubmitFunc, suggest: SuggestFunc, cancel: CancelFunc)
 	rv_defer_draw*: fn(f: fn())
+	sv_show_message*: fn(icon: str, icon_color: renderer::Color, text: str)
 )
 
 fn add_thread*(f: fn(), wait: real) {
@@ -99,14 +90,10 @@ fn add_thread*(f: fn(), wait: real) {
 
 fn core_log*(icon: str, icon_color: renderer::Color, text: str): LogItem {
 	if len(icon) != 0 {
-		// status_view:show_message(icon, icon_color, text)
+		sv_show_message(icon, icon_color, text)
 		printf("CORE_LOG %v\n", text)
 	}
 
-	// info := debug.getinfo(2, "Sl")
-	// at := string.format("%s:%d", info.short_src, info.currentline)
-	// item := { text = text, time = os.time(), at = at }
-	// NOTE get some stack trace
 	item := LogItem{time: system::get_time(), text: text}
 	log_items = append(log_items, item)
 	if len(log_items) > config::max_log_items {
@@ -121,6 +108,10 @@ fn log_info*(text: str): LogItem {
 
 fn log_quiet*(text: str): LogItem {
 	return core_log("", {}, text)
+}
+
+fn log_error*(text: str): LogItem {
+	return core_log("!", style::accent, text)
 }
 
 fn set_active_view*(view: View) {
@@ -149,17 +140,6 @@ fn delete_temp_files*() {
 	}
 }
 
-fn reload_module*(name: str) {
-	// old := package.loaded[name]
-	// package.loaded[name] = nil
-	// new := require(name)
-	// if type(old) == "table" {
-	// for k, v in pairs(new) do old[k] = v}
-	// package.loaded[name] = old
-	// }
-	// NOTE use system::reload, to compile and send back function pointers to use
-}
-
 fn push_clip_rect*(x, y, w, h: real) {
 	cr := clip_rect_stack[len(clip_rect_stack)-1]
 	x2, y2, w2, h2 := cr.x, cr.y, cr.w, cr.h
@@ -177,6 +157,19 @@ fn pop_clip_rect*() {
 	x, y, w, h := cr.x, cr.y, cr.w, cr.h
 	renderer::fset_clip_rect(x, y, w, h)
 }
+
+// fn try(fn, ...) {
+// 	local err
+// 	 ok, res := xpcall(fn, function(msg)
+// 		 item := state::core.error("%s", msg)
+// 		item.info = debug.traceback(nil, 2):gsub("\t", "")
+// 		err = msg
+//  }, ...)
+// 	if ok {
+// 		return true, res
+//  }
+// 	return false, err
+// }
 
 fn init*() {
 	init_tmpfiles()

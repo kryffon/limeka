@@ -1,0 +1,63 @@
+import (
+	"syntax.um"
+)
+
+fn load*() {
+	syntax::add({
+		files : { "%.c$", "%.h$", "%.inl$", "%.cpp$", "%.hpp$" },
+		comment : "//",
+		patterns : {
+			{ pattern : {"//.-\n"},               typ : "comment"  },
+			{ pattern : { "/%*", "%*/" },       typ : "comment"  },
+			{ pattern : { "#", "[^\\]\n" },     typ : "comment"  },
+			{ pattern : { '"', '"', '\\' },     typ : "string"   },
+			{ pattern : { "'", "'", '\\' },     typ : "string"   },
+			{ pattern : {"-?0x%x+"},              typ : "number"   },
+			{ pattern : {"-?%d+[%d%.eE]*f?"},     typ : "number"   },
+			{ pattern : {"-?%.?%d+f?"},           typ : "number"   },
+			{ pattern : {"[%+%-:/%*%^%%<>!~|&]"}, typ : "operator" },
+			{ pattern : {"[%a_][%w_]*%f[(]"},     typ : "function" },
+			{ pattern : {"[%a_][%w_]*"},          typ : "symbol"   },
+		},
+		symbols : {
+			"if"       : "keyword",
+			"then"     : "keyword",
+			"else"     : "keyword",
+			"elseif"   : "keyword",
+			"do"       : "keyword",
+			"while"    : "keyword",
+			"for"      : "keyword",
+			"break"    : "keyword",
+			"continue" : "keyword",
+			"return"   : "keyword",
+			"goto"     : "keyword",
+			"struct"   : "keyword",
+			"union"    : "keyword",
+			"typedef"  : "keyword",
+			"enum"     : "keyword",
+			"extern"   : "keyword",
+			"static"   : "keyword",
+			"volatile" : "keyword",
+			"const"    : "keyword",
+			"inline"   : "keyword",
+			"switch"   : "keyword",
+			"case"     : "keyword",
+			"default"  : "keyword",
+			"auto"     : "keyword",
+			"const"    : "keyword",
+			"void"     : "keyword",
+			"int"      : "keyword2",
+			"short"    : "keyword2",
+			"long"     : "keyword2",
+			"float"    : "keyword2",
+			"double"   : "keyword2",
+			"char"     : "keyword2",
+			"unsigned" : "keyword2",
+			"bool"     : "keyword2",
+			"true"     : "literal",
+			"false"    : "literal",
+			"NULL"     : "literal",
+		},
+	})
+}
+

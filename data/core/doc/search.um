@@ -28,7 +28,7 @@ fn init_args(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption): (int
 	return line, col, text
 }
 
-fn find*(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption) : (int, int, int, int) {
+fn find*(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption) : (doc::Selection, bool) {
 	line, col, text = init_args(doc, line, col, text, opt)
 
 	for l := line; l < len(doc.lines); l++ {
@@ -38,7 +38,7 @@ fn find*(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption) : (int, i
 		}
 		s, e, ok := strings::find(line_text, text, col, !opt.pattern)
 		if ok {
-			return l, s, l, e
+			return {a:{l, s}, b:{l, e}}, true
 		}
 		col = 1
 	}
@@ -46,5 +46,5 @@ fn find*(doc: ^doc::Doc, line, col: int, text: str, opt: SearchOption) : (int, i
 		opt2 := SearchOption{no_case: opt.no_case, pattern: opt.pattern}
 		return find(doc, 0, 0, text, opt2)
 	}
-	return -1,-1,-1,-1
+	return {}, false
 }

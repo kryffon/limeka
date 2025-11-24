@@ -1,0 +1,300 @@
+import (
+	"common.um"
+	"command.um"
+	"keymap.um"
+	"style.um"
+	"view.um"
+	"env.um"
+	"cex.um"
+	"system.um"
+	"renderer.um"
+	"rootview.um"
+	"docview.um"
+	"doc.um"
+	cu = "commandutils.um"
+)
+
+var treeview_size : real = 200.0 * env::SCALE
+
+fn get_depth(filename: str): int {
+	n := 0
+	for i in filename {
+		if filename[i] == env::PATHSEP { n++ }
+	}
+	return n
+}
+
+type Info = struct {
+	filename, abs_filename, name: str;
+	depth: int;
+	is_dir, expanded: bool;
+	skip: struct {
+		ok: bool;
+		n: int;
+	};
+}
+
+type TreeView* = struct {
+	// view
+	position, size: common::Vec2;
+	scroll: common::Scroll;
+	cursor: str;
+	scrollable: bool;
+	hovered_scrollbar: bool;
+	dragging_scrollbar: bool;
+
+	// trreview
+	visible: bool;
+	init_size: bool;
+	cache: map[str]Info;
+	hovered_item: ^Info;
+	last_project_files_changed: real;
+}
+
+fn (self: ^TreeView) get_debug*(): str {
+	return "TreeView"
+}
+
+fn (self: ^TreeView) try_close*(do_close: fn()) {
+	do_close()
+}
+
+fn (self: ^TreeView) get_name*(): str {
+	return "Project"
+}
+
+fn (self: ^TreeView) get_cursor*(): str {
+	return self.cursor
+}
+
+fn (self: ^TreeView)	get_scrollable_size*(): real {
+	return env::INT_MAX
+}
+
+fn (self: ^TreeView) get_scrollbar_rect*(): common::Rect {
+	return view::get_scrollbar_rect(self.get_scrollable_size(), self.position, self.size, self.scroll)
+}
+
+fn (self: ^TreeView) scrollbar_overlaps_point*(x, y: real): bool {
+	return view::scrollbar_overlaps_point(self.get_scrollbar_rect(), x, y)
+}
+
+fn (self: ^TreeView) on_mouse_released*(button: str, x, y: real) {
+	view::on_mouse_released(&self.dragging_scrollbar)
+}
+
+fn (self: ^TreeView) on_text_input*(text: str) {}
+
+fn (self: ^TreeView) on_mouse_wheel*(y: real) {
+	view::on_mouse_wheel(self.scrollable, &self.scroll, y)
+}
+
+fn (self: ^TreeView) get_content_bounds*(): (common::Rect, ^common::Vec2, ^common::Vec2) {
+	return view::get_content_bounds(self.size, self.scroll), &self.position, &self.size
+}
+
+fn (self: ^TreeView) get_content_offset*(): (real, real) {
+	return view::get_content_offset(self.position, self.scroll)
+}
+
+fn (self: ^TreeView) draw_background*(color: renderer::Color) {
+	view::draw_background(self.position, self.size, color)
+}
+
+fn (self: ^TreeView) draw_scrollbar*() {
+	view::draw_scrollbar(self.get_scrollbar_rect(), self.hovered_scrollbar, self.dragging_scrollbar)
+}
+
+fn (self: ^TreeView) update*()
+fn (self: ^TreeView) draw*()
+
+fn get_new*(): ^TreeView {
+	self := new(TreeView)
+	self.cursor = "arrow"
+	self.scrollable = true
+	self.visible = true
+	self.init_size = true
+	return self
+}
+
+fn rv(): ^rootview::RootView { return ^rootview::RootView(cex::root_view) }
+fn doc(): ^doc::Doc {
+	switch v := type(cex::active_view) {
+		case docview::DocView: return v.doc
+	}
+	return null
+}
+
+fn (self: ^TreeView) get_cached*(item: system::FileInfo): ^Info {
+	if !validkey(self.cache, item.name) {
+		var t: Info
+		t.filename = item.name
+		t.abs_filename = system::absolute_path(item.name).item0
+		t.name = common::basename(item.name)
+		t.is_dir = item.is_dir
+		t.depth = get_depth(item.name)
+		self.cache[item.name] = t
+	}
+	return &self.cache[item.name]
+}
+
+fn (self: ^TreeView) get_item_height*(): real {
+	return renderer::font_get_height(style::font) + style::padding.y
+}
+
+fn (self: ^TreeView) check_cache*() {
+	// -- invalidate cache's skip values if project_files has changed
+	if cex::project_files_changed > self.last_project_files_changed {
+		for _, k in keys(self.cache) {
+			self.cache[k].skip = {}
+		}
+		self.last_project_files_changed = cex::project_files_changed
+	}
+}
+
+type Iterator = struct {
+	tree: ^TreeView;
+	ox,y,w,h: real;
+	i: int;
+	last_i: int;
+}
+
+fn (self: ^TreeView) get_iter(): Iterator {
+	self.check_cache()
+	var it: Iterator
+	ox, oy := self.get_content_offset()
+	it.tree = self
+	it.ox = ox
+	it.y = oy + style::padding.y
+	it.w = self.size.x
+	it.h = self.get_item_height()
+	return it
+}
+
+fn (self: ^Iterator) each_item(): (^Info, real, real, real, real) {
+	item := cex::project_files[self.last_i]
+	cached := self.tree.get_cached(item)
+	return cached, self.ox, self.y, self.w, self.h
+}
+
+fn (self: ^Iterator) iterate(): bool {
+	self.last_i = self.i
+	if self.i >= len(cex::project_files) { return false }
+	item := cex::project_files[self.i]
+	cached := self.tree.get_cached(item)
+
+	self.y += self.h
+	self.i++
+	if !cached.expanded {
+		if cached.skip.ok {
+			self.i = cached.skip.n
+		} else {
+			depth := cached.depth
+			for self.i < len(cex::project_files) {
+				filename := cex::project_files[self.i].name
+				if get_depth(filename) <= depth { break }
+				self.i++
+				cached.skip = {ok: true, n: self.i}
+			}
+		}
+	}
+	return true
+}
+
+fn (self: ^TreeView) on_mouse_moved*(px, py, dx, dy: real) {
+	self.hovered_item = null
+	it := self.get_iter()
+	for it.iterate() {
+		item, x, y, w, h := it.each_item()
+		if px > x && py > y && px <= x + w && py <= y + h {
+			self.hovered_item = item
+			break
+		}
+	}
+}
+
+fn (self: ^TreeView) on_mouse_pressed*(button: str, x, y: real, _: int): bool {
+	if self.hovered_item == null {
+		return false
+	} else if self.hovered_item.is_dir {
+		self.hovered_item.expanded = !self.hovered_item.expanded
+	} else {
+		// NOTE use try
+		rv().open_doc(cu::open_doc(self.hovered_item.filename))
+	}
+	return true
+}
+
+fn (self: ^TreeView) update*() {
+	// -- update width
+	dest := self.visible? treeview_size : 0.0
+	if self.init_size {
+		self.size.x = dest
+		self.init_size = false
+	} else {
+		view::move_towards(&self.size.x, dest)
+	}
+	view::update(self.get_scrollable_size(), self.size, &self.scroll)
+}
+
+fn (self: ^TreeView) draw*() {
+	self.draw_background(style::background2)
+
+	icon_width := renderer::font_get_width(style::icon_font, "D")
+	spacing := renderer::font_get_width(style::font, " ") * 2
+
+	d := doc()
+	active_filename := (d != null)? system::absolute_path(d.filename).item0 : ""
+
+	it := self.get_iter()
+	for it.iterate() {
+		item, x, y, w, h := it.each_item()
+		color := style::text
+
+		// -- highlight active_view doc
+		if item.abs_filename == active_filename {
+			color = style::accent
+		}
+
+		// -- hovered item background
+		if item == self.hovered_item {
+			renderer::fdraw_rect(x, y, w, h, style::line_highlight)
+			color = style::accent
+		}
+
+		// -- icons
+		x = x + item.depth * style::padding.x + style::padding.x
+		if item.is_dir {
+			icon1 := item.expanded ? "-" : "+"
+			icon2 := item.expanded ? "D" : "d"
+			common::draw_text(style::icon_font, color, icon1, "", x, y, 0, h)
+			x = x + style::padding.x
+			common::draw_text(style::icon_font, color, icon2, "", x, y, 0, h)
+			x = x + icon_width
+		} else {
+			x = x + style::padding.x
+			common::draw_text(style::icon_font, color, "f", "", x, y, 0, h)
+			x = x + icon_width
+		}
+
+		// -- text
+		x = x + spacing
+		common::draw_text(style::font, color, item.name, "", x, y, 0, h)
+	}
+}
+
+fn load*() {
+	// -- init
+	view := get_new()
+	node := rv().get_active_node()
+	node.split("left", view, true)
+
+	// -- register commands and keymap
+	command::add(fn():bool { return true }, {
+	  "treeview:toggle" : fn() |view| {
+	    view.visible = !view.visible
+	  },
+	})
+
+	keymap::add_keybind("ctrl+\\", "treeview:toggle")
+}

@@ -9,17 +9,17 @@ type Token* = struct {
 	typ, text: str;
 }
 
-fn push_token(res: ^[]Token, typ: str, text: str) {
-	if len(res^) != 0 {
-		prev := &res[len(res^)-1]
+fn push_token(res: []Token, typ: str, text: str): []Token {
+	if len(res) != 0 {
+		prev := &res[len(res)-1]
 		_, _, ok := strings::find(prev.text, "^%s*$")
 		if prev.typ == typ || ok {
 			prev.typ = typ
 			prev.text += text
-			return
+			return res
 		}
 	}
-	res^ = append(res^, Token{typ, text})
+	return append(res, Token{typ, text})
 }
 
 fn is_escaped(text: str, idx: int, esc: str): bool {
@@ -64,11 +64,11 @@ fn tokenize*(syn: ^syntax::Syntax, text: str, state: int = NULL_STATE): ([]Token
 			p := syn.patterns[state]
 			_, e, ok := find_non_escaped(text, &p, i)
 			if ok {
-				push_token(&res, p.typ, slice(text, i, e))
+				res = push_token(res, p.typ, slice(text, i, e))
 				state = NULL_STATE
 				i = e
 			} else {
-				push_token(&res, p.typ, slice(text, i))
+				res = push_token(res, p.typ, slice(text, i))
 				break
 			}
 		}
@@ -82,7 +82,7 @@ fn tokenize*(syn: ^syntax::Syntax, text: str, state: int = NULL_STATE): ([]Token
 				if validkey(syn.symbols, t) {
 					typ = syn.symbols[t]
 				} 
-				push_token(&res, typ, t)
+				res = push_token(res, typ, t)
 				if len(p.pattern) > 1 {
 					state = n
 				}
@@ -93,7 +93,7 @@ fn tokenize*(syn: ^syntax::Syntax, text: str, state: int = NULL_STATE): ([]Token
 		}
 
 		if !matched {
-			push_token(&res, "normal", slice(text, i, i+1))
+			res = push_token(res, "normal", slice(text, i, i+1))
 			i = i+1
 		}
 	}

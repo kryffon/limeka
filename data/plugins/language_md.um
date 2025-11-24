@@ -1,0 +1,24 @@
+import (
+	"syntax.um"
+)
+
+fn load*() {
+	syntax::add({
+		files: { "%.md$", "%.markdown$" },
+		patterns : {
+			{ pattern : {"\\."},                    typ : "normal"   },
+			{ pattern : { "<!%-%-", "%-%->" },    typ : "comment"  },
+			{ pattern : { "```", "```" },         typ : "string"   },
+			{ pattern : { "``", "``", "\\" },     typ : "string"   },
+			{ pattern : { "`", "`", "\\" },       typ : "string"   },
+			{ pattern : { "~~", "~~", "\\" },     typ : "keyword2" },
+			{ pattern : {"%-%-%-+"},                typ : "comment" },
+			{ pattern : {"%*%s+"},                  typ : "operator" },
+			{ pattern : { "%*", "[%*\n]", "\\" }, typ : "operator" },
+			{ pattern : { "%_", "[%_\n]", "\\" }, typ : "keyword2" },
+			{ pattern : {"#.-\n"},                  typ : "keyword"  },
+			{ pattern : {"!?%[.-%]%(.-%)"},         typ : "function" },
+			{ pattern : {"https?://%S+"},           typ : "function" },
+		},
+	})
+}

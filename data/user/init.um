@@ -1,0 +1,20 @@
+// -- put user settings here
+// -- this module will be loaded after everything else when the application starts
+// this file must have a extern `init` function with no inputs/returns
+
+import (
+	"keymap.um"
+	// "colors/summer.um"
+	// "colors/fall.um"
+)
+
+fn init*() {
+	// themes
+	// summer::load() // light
+	// fall::load() // fall
+
+	// -- key binding:
+	keymap::add_keybind("ctrl+escape", "core:quit")
+}
+
+

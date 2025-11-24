@@ -73,6 +73,9 @@ fn load_commands_command() {
 
 fullscreen := false
 
+fn suggest_default(_: str): []cex::Suggestion { return {} }
+fn cancel_default(_: bool) {}
+
 fn count_dirty_docs*(): (int, str) {
 	dirty_count := 0
 	var dirty_name: str 
@@ -136,24 +139,6 @@ fn load_commands_core() {
 			fullscreen = !fullscreen
 			system::set_window_mode(fullscreen ? "fullscreen" : "normal")
 		},
-		"core:reload-module": fn() {
-			submit := fn(text: str, item: ^cex::Suggestion) {
-				text = (item != null)? item.text : text
-				cex::reload_module(text)
-				cex::log_info(sprintf("Reloaded module %v", text))
-			}
-			suggest := fn(text: str): []cex::Suggestion {
-				matches := common::fuzzy_match(keys(cex::package_loaded), text)
-				res := make([]cex::Suggestion, len(matches))
-				for i in matches {
-					res[i] = {text: matches[i]}
-				}
-				return res
-			}
-			cancel := fn(_: bool){}
-			cv(cex::command_view).enter("Reload Module", submit, suggest, cancel)
-		},
-
 		"core:find-command": fn() {
 			commands := command::get_all_valid()
 			submit := fn(text: str, item: ^cex::Suggestion) {
@@ -173,8 +158,7 @@ fn load_commands_core() {
 				}
 				return res
 			}
-			cancel := fn(_: bool){}
-			cv(cex::command_view).enter("Do Command", submit, suggest, cancel)
+			cv(cex::command_view).enter("Do Command", submit, suggest, cancel_default)
 		},
 
 		"core:find-file": fn() {
@@ -196,8 +180,7 @@ fn load_commands_core() {
 				}
 				return res
 			}
-			cancel := fn(_: bool){}
-			cv(cex::command_view).enter("Open File From Project", submit, suggest, cancel)
+			cv(cex::command_view).enter("Open File From Project", submit, suggest, cancel_default)
 		},
 
 		"core:new-doc": fn() {
@@ -216,8 +199,7 @@ fn load_commands_core() {
 				}
 				return res
 			}
-			cancel := fn(_: bool){}
-			cv(cex::command_view).enter("Open File", submit, suggest, cancel)
+			cv(cex::command_view).enter("Open File", submit, suggest, cancel_default)
 		},
 
 		"core:open-log": fn() {
@@ -463,9 +445,8 @@ fn load_commands_doc() {
 		},
 		// "doc:go-to-line": fn () {
 		// 	dv := dv()
-
 		// 	items
-		// 	function init_items()
+		// 	init_items := fn(){
 		// 			if items { return}
 		// 			items := {}
 		// 	mt := { __tostring = fn (x) return x.text} } {
@@ -507,7 +488,7 @@ fn load_commands_doc() {
 			}
 			cv(cex::command_view).enter("Save As", fn (filename: str, _: ^cex::Suggestion) {
 					save(filename)
-			}, suggest, fn(_:bool) {})
+			}, suggest, cancel_default)
 		},
 		"doc:save": fn () {
 			if len(doc().filename) > 0 {
@@ -516,23 +497,31 @@ fn load_commands_doc() {
 				command::perform("doc:save-as")
 			}
 		},
-
-		// "doc:rename": fn () {
-		// 	old_filename := doc().filename
-		// 		if not old_filename {
-		// 			state::core.error("Cannot rename unsaved doc")
-		// 			return
-		// 	}
-		// 		state::core.command_view:set_text(old_filename)
-		// 		state::core.command_view:enter("Rename", fn (filename) {
-		// 			doc().save(filename)
-		// 			state::core.log("Renamed \"%s\" to \"%s\"", old_filename, filename)
-		// 			if filename ~= old_filename {
-		// 				os.remove(old_filename)
-		// 		 }
-		// 	}, common.path_suggest)
-		// 	},
+		"doc:rename": fn () {
+			old_filename := doc().filename
+			if len(old_filename) == 0 {
+					cex::log_error("Cannot rename unsaved doc")
+					return
+			}
+			cv(cex::command_view).set_text(old_filename)
+			submit := fn(filename: str, _: ^cex::Suggestion) |old_filename| {
+				doc().save(filename)
+				cex::log_info(sprintf("Renamed \"%s\" to \"%s\"", old_filename, filename))
+				if filename != old_filename {
+					std::remove(old_filename)
+				}
+			}
+			suggest := fn(text: str): []cex::Suggestion {
+				matches := common::path_suggest(text)
+				res := make([]cex::Suggestion, len(matches))
+				for i in matches {
+					res[i] = {text: matches[i]}
+				}
+				return res
+			}
+			cv(cex::command_view).enter("Rename", submit, suggest, cancel_default)
 		}
+	}
 
 
 	translations := map[str]doc::TranslateFunc{
@@ -592,168 +581,171 @@ fn load_commands_doc() {
 	command::add(has_doc, commands)
 }
 
-// max_previous_finds := 50
+max_previous_finds := 50
 
-// var (
-// 	previous_finds: []doc::Selection
-// 	last_doc: ^doc::Doc
-// 	last_fn, last_text
-// )
+type SearchFunc = fn(d: ^doc::Doc, l,c: int, text: str): (doc::Selection, bool)
 
-// fn push_previous_find(doc, sel) {
-// 	if last_doc ~= doc {
-// 		last_doc = doc
-// 		previous_finds = {}
-// 	}
-// 	if #previous_finds >= max_previous_finds {
-// 		table.remove(previous_finds, 1)
-// 	}
-// 	table.insert(previous_finds, sel or { doc:get_selection() })
-// }
+var (
+	previous_finds: []doc::Selection
+	last_doc: ^doc::Doc
+	last_fn: SearchFunc
+	last_text: str
+)
+
+fn push_previous_find(cdoc: ^doc::Doc, sel: doc::Selection, ok: bool) {
+	if last_doc != cdoc {
+		last_doc = cdoc
+		previous_finds = {}
+	}
+	if len(previous_finds) >= max_previous_finds {
+		previous_finds = delete(previous_finds, 0)
+	}
+	if !ok {
+		sel = doc().get_selection().item0
+	}
+	previous_finds = insert(previous_finds, 0, sel)
+}
+
+fn find_submit_found(dv: ^docview::DocView, search_fn: SearchFunc, text: str, sel: doc::Selection) {
+	last_fn, last_text = search_fn, text
+	previous_finds = {}
+	push_previous_find(dv.doc, sel, true)
+}
+
+fn find(label: str, search_fn: SearchFunc) {
+	dv := dv(cex::active_view)
+	sel := dv.doc.get_selection().item0
+	text := dv.doc.get_text(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+
+	cv(cex::command_view).set_text(text, true)
+	submit := fn(text: str, found: ^cex::Suggestion) |search_fn, dv, sel| {
+		if found != null {
+			find_submit_found(dv, search_fn, text, sel)
+		} else {
+			cex::log_error("Couldn't find " + text)
+			dv.doc.set_selection(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+			dv.scroll_to_make_visible(sel.a.line, sel.a.col)
+		}
+	}
+	suggest := fn (text: str): []cex::Suggestion |search_fn, dv, sel| {
+		var ok: bool
+		sel, ok = search_fn(dv.doc, sel.a.line, sel.a.col, text)
+		if ok && text != "" {
+			dv.doc.set_selection(sel.b.line, sel.b.col, sel.a.line, sel.a.col)
+			dv.scroll_to_line(sel.b.line, true)
+			return {{text: sprintf("Line: %d", sel.b.line)}}
+		} else {
+			dv.doc.set_selection(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+		}
+		return {}
+	}
+	cancel := fn (explicit: bool) |dv, sel| {
+		if explicit {
+			dv.doc.set_selection(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+			dv.scroll_to_make_visible(sel.a.line, sel.a.col)
+		}
+	}
+	cv(cex::command_view).enter(label, submit, suggest, cancel)
+}
 
 
-// fn find(label, search_fn) {
-// 	dv := state::core.active_view
-// 	sel := { dv.doc:get_selection() }
-// 	text := dv.doc:get_text(table.unpack(sel))
-// 	found := false
-
-// 	state::core.command_view:set_text(text, true)
-
-// 	state::core.command_view:enter(label, fn (text) {
-// 		if found {
-// 			last_fn, last_text = search_fn, text
-// 			previous_finds = {}
-// 			push_previous_find(dv.doc, sel)
-// 		else
-// 			state::core.error("Couldn't find %q", text)
-// 			dv.doc:set_selection(table.unpack(sel))
-// 			dv:scroll_to_make_visible(sel[1], sel[2])
-// 		}
-
-// 	}, fn (text) {
-// 	ok, line1, col1, line2, col2 := pcall(search_fn, dv.doc, sel[1], sel[2], text)
-// 		if ok and line1 and text ~= "" {
-// 			dv.doc:set_selection(line2, col2, line1, col1)
-// 			dv:scroll_to_line(line2, true)
-// 			found = true
-// 		else
-// 			dv.doc:set_selection(table.unpack(sel))
-// 			found = false
-// 		}
-
-// 	}, fn (explicit) {
-// 		if explicit {
-// 			dv.doc:set_selection(table.unpack(sel))
-// 			dv:scroll_to_make_visible(sel[1], sel[2])
-// 		}
-// 	})
-// }
-
-
-// fn replace(kind, default, fn) {
-// 	state::core.command_view:set_text(default, true)
-
-// 	state::core.command_view:enter("Find To Replace " .. kind, fn (old) {
-// 		state::core.command_view:set_text(old, true)
-
-// 	s := string.format("Replace %s %q With", kind, old)
-// 		state::core.command_view:enter(s, fn (new) {
-// 	n := doc().replace(fn (text) {
-// 				return fn(text, old, new)
+// fn replace(kind, def: str, f: fn(t,o,n: str): str) {
+// 	cv(cex::command_view).set_text(def, true)
+// 	cv(cex::command_view).enter("Find To Replace " + kind, fn (old: str, _: ^cex::Suggestion) |kind, f| {
+// 		cv(cex::command_view).set_text(old, true)
+// 		s := sprintf("Replace %s %s With", kind, old)
+// 		cv(cex::command_view).enter(s, fn (newtext: str, _: ^cex::Suggestion) |f| {
+// 			n := doc().replace(fn (text: str): str |f, old, newtext, kind| {
+// 				return f(text, old, newtext)
 // 			})
-// 			state::core.log("Replaced %d instance(s) of %s %q with %q", n, kind, old, new)
-// 		})
-// 	})
+// 			cex::log_info(sprintf("Replaced %d instance(s) of %s %q with %q", n, kind, old, newtext))
+// 		}, suggest_default, cancel_default)
+// 	}, suggest_default, cancel_default)
 // }
 
+fn has_selection(): bool {
+	return has_docview() && doc().has_selection()
+}
 
-// fn has_selection() {
-// 	return state::core.active_view:is(DocView)
-// 		 and state::core.active_view.doc:has_selection()
-// }
+fn replace_repeat_find() {
+	if !valid(last_fn) {
+		cex::log_error("No find to continue from")
+	} else {
+		sel := doc().get_selection().item0
+		var ok: bool
+		sel, ok = last_fn(doc(), sel.a.line, sel.a.col, last_text)
+		if ok {
+			push_previous_find(doc(), {}, false)
+			doc().set_selection(sel.b.line, sel.b.col, sel.a.line, sel.a.col)
+			dv(cex::active_view).scroll_to_line(sel.b.line, true)
+		}
+	}
+}
+fn load_commands_find_replace*() {
+	command::add(has_selection, {
+		"find-replace:select-next": fn() {
+			sel := doc().get_selection(true).item0
+			text := doc().get_text(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+			var ok: bool
+			sel, ok = search::find(doc(), sel.b.line, sel.b.col, text, { wrap: true })
+			if ok { doc().set_selection(sel.b.line, sel.b.col, sel.a.line, sel.a.col) }
+		}
+	})
 
-// fn load_commands_find_replace*() {
-// command.add(has_selection, {
-// 	"find-replace:select-next": fn() {
-// 	l1, c1, l2, c2 := doc().get_selection(true)
-// 	text := doc().get_text(l1, c1, l2, c2)
-// 	l1, c1, l2, c2 := search.find(doc(), l2, c2, text, { wrap = true })
-// 		if l2 { doc().set_selection(l2, c2, l1, c1) }
-// 	}
-// })
+	command::add(has_docview, {
+		"find-replace:find": fn() {
+			find("Find Text", fn (doc: ^doc::Doc, line, col: int, text: str): (doc::Selection, bool) {
+				return search::find(doc, line, col, text, {wrap: true, no_case: true})
+			})
+		},
+		"find-replace:find-pattern": fn() {
+			find("Find Text Pattern", fn (doc: ^doc::Doc, line, col: int, text: str): (doc::Selection, bool) {
+				return search::find(doc, line, col, text, { wrap: true, no_case: true, pattern: true })
+			})
+		},
+		"find-replace:repeat-find": replace_repeat_find,
+		// "find-replace:previous-find": fn() {
+		// sel := table.remove(previous_finds)
+		// 	if not sel or doc() ~= last_doc {
+		// 		state::core.error("No previous finds")
+		// 		return
+		// 	}
+		// 	doc().set_selection(table.unpack(sel))
+		// 	state::core.active_view:scroll_to_line(sel[3], true)
+		// },
 
-// command.add("core.docview", {
-// 	"find-replace:find": fn() {
-// 		find("Find Text", fn (doc, line, col, text) {
-// 	opt := { wrap = true, no_case = true }
-// 			return search.find(doc, line, col, text, opt)
-// 		})
-// 	},
+		// "find-replace:replace": fn() {
+		// 	replace("Text", "", fn (text, old, new) {
+		// 		return text:gsub(old:gsub("%W", "%%%1"), new:gsub("%%", "%%%%"), nil)
+		// 	})
+		// },
 
-// 	"find-replace:find-pattern": fn() {
-// 		find("Find Text Pattern", fn (doc, line, col, text) {
-// 	opt := { wrap = true, no_case = true, pattern = true }
-// 			return search.find(doc, line, col, text, opt)
-// 		})
-// 	},
+		// "find-replace:replace-pattern": fn() {
+		// 	replace("Pattern", "", fn (text, old, new) {
+		// 		return text:gsub(old, new)
+		// 	})
+		// },
 
-// 	"find-replace:repeat-find": fn() {
-// 		if !last_fn {
-// 			state::core.error("No find to continue from")
-// 		} else {
-// 	line, col := doc().get_selection()
-// 	line1, col1, line2, col2 := last_fn(doc(), line, col, last_text)
-// 			if line1 {
-// 				push_previous_find(doc())
-// 				doc().set_selection(line2, col2, line1, col1)
-// 				state::core.active_view:scroll_to_line(line2, true)
-// 			}
-// 		}
-// 	},
+		// "find-replace:replace-symbol": fn() {
+		// first := ""
+		// 	if doc().has_selection() {
+		// text := doc().get_text(doc().get_selection())
+		// 		first = text:match(state::config.symbol_pattern) or ""
+		// 	}
+		// 	replace("Symbol", first, fn (text, old, new) {
+		// n := 0
+		// res := text:gsub(state::config.symbol_pattern, fn (sym) {
+		// 			if old == sym {
+		// 				n = n + 1
+		// 				return new
+		// 			}
+		// 		})
+		// 		return res, n
+		// 	})
+		// },
+	})
 
-// 	"find-replace:previous-find": fn() {
-// 	sel := table.remove(previous_finds)
-// 		if not sel or doc() ~= last_doc {
-// 			state::core.error("No previous finds")
-// 			return
-// 		}
-// 		doc().set_selection(table.unpack(sel))
-// 		state::core.active_view:scroll_to_line(sel[3], true)
-// 	},
-
-// 	"find-replace:replace": fn() {
-// 		replace("Text", "", fn (text, old, new) {
-// 			return text:gsub(old:gsub("%W", "%%%1"), new:gsub("%%", "%%%%"), nil)
-// 		})
-// 	},
-
-// 	"find-replace:replace-pattern": fn() {
-// 		replace("Pattern", "", fn (text, old, new) {
-// 			return text:gsub(old, new)
-// 		})
-// 	},
-
-// 	"find-replace:replace-symbol": fn() {
-// 	first := ""
-// 		if doc().has_selection() {
-// 	text := doc().get_text(doc().get_selection())
-// 			first = text:match(state::config.symbol_pattern) or ""
-// 		}
-// 		replace("Symbol", first, fn (text, old, new) {
-// 	n := 0
-// 	res := text:gsub(state::config.symbol_pattern, fn (sym) {
-// 				if old == sym {
-// 					n = n + 1
-// 					return new
-// 				}
-// 			})
-// 			return res, n
-// 		})
-// 	},
-// })
-
-// }
+}
 
 fn load_commands_root() {
 	t := map[str]fn(){
@@ -851,4 +843,5 @@ fn load_default_commands*() {
 	load_commands_core()
 	load_commands_command()
 	load_commands_root()
+	load_commands_find_replace()
 }

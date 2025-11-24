@@ -76,7 +76,6 @@ fn (self: ^DocView) get_font*(): renderer::Font {
 }
 
 fn (self: ^DocView) get_line_height*(): real {
-	// NOTE check if font_height needs a floor
 	return renderer::font_get_height(self.get_font()) * config::line_height
 }
 
@@ -199,7 +198,7 @@ fn (self: ^DocView) resolve_screen_position*(x, y: real): (int, int) {
 	return line, col
 }
 
-fn (self: ^DocView) scroll_to_line*(line: int, ignore_if_visible, instant: bool) {
+fn (self: ^DocView) scroll_to_line*(line: int, ignore_if_visible: bool, instant: bool = false) {
 	min, max := self.get_visible_line_range()
 	if !(ignore_if_visible && line > min && line < max) {
 		lh := self.get_line_height()
@@ -331,7 +330,7 @@ fn (self: ^DocView) draw_line_text*(idx: int, x, y: real) {
 	font := self.get_font()
 	for _, tok^ in self.doc.line_tokens(idx) {
 		color := style::syntax[tok.typ]
-		renderer::draw_text(font, tok.text, tx, ty, color)
+		tx = renderer::draw_text(font, tok.text, tx, ty, color)
 	}
 }
 

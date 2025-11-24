@@ -160,7 +160,6 @@ fn (self: ^CommandView) dv_get_font*(): renderer::Font {
 }
 
 fn (self: ^CommandView) dv_get_line_height*(): real {
-	// NOTE check if font_height needs a floor
 	return renderer::font_get_height(self.dv_get_font()) * config::line_height
 }
 
@@ -290,7 +289,10 @@ fn (self: ^CommandView) exit*(submitted: bool = false, inexplicit: bool = false)
 }
 
 fn (self: ^CommandView) submit*() {
-	suggestion := &self.suggestions[self.suggestion_idx]
+	var suggestion: ^cex::Suggestion = null
+	if self.suggestion_idx < len(self.suggestions) {
+		suggestion = &self.suggestions[self.suggestion_idx]
+	}
 	text := self.get_text()
 	submit := self.state.submit
 	self.exit(true)

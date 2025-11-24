@@ -26,18 +26,30 @@ fn add*(newkmap: map[str][]str, overwrite: bool = false) {
 		if overwrite {
 			stroke_map[stroke] = cmds
 		} else {
-			if !valid(stroke_map[stroke]) {
-				stroke_map[stroke] = make([]str, 0)
+			if !validkey(stroke_map, stroke) {
+				stroke_map[stroke] = {}
 			}
-			sm := &stroke_map[stroke]
 			for i:= len(cmds)-1; i>=0; i-- {
-				sm^ = insert(sm^, 0, cmds[i])
+				stroke_map[stroke] = insert(stroke_map[stroke], 0, cmds[i])
 			}
 		}
 		for _, cmd in cmds {
 			reverse_map[cmd] = stroke
 		}
 	}
+}
+
+fn add_keybind*(stroke, cmd: str, overwrite: bool = false) {
+	if overwrite {
+		stroke_map[stroke] = {cmd}
+	} else {
+		if validkey(stroke_map, stroke) {
+			stroke_map[stroke] = insert(stroke_map[stroke], 0, cmd)
+		} else {
+			stroke_map[stroke] = {cmd}
+		}
+	}
+	reverse_map[cmd] = stroke
 }
 
 fn get_binding*(cmd: str): str {

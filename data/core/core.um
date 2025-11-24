@@ -1,14 +1,12 @@
 import (
 	"std.um"
 	"env.um"
-	"strings.um"
 	"system.um"
 	"renderer.um"
 	"config.um"
 	"common.um"
 	"style.um"
 	"doc.um"
-	"command.um"
 	"keymap.um"
 	"docview.um"
 	"commandview.um"
@@ -16,6 +14,7 @@ import (
 	"rootview.um"
 	"commandutils.um"
 	"cex.um"
+	"plugins.um"
 )
 
 fn diff_files(a, b: []system::FileInfo): bool  {
@@ -28,13 +27,8 @@ fn diff_files(a, b: []system::FileInfo): bool  {
 	return false
 }
 
-// fn compare_file(a, b: cex::ProjectFile): bool {
-// 	return a.filename < b.filename
-// }
-
 fn get_files(path: str, t: []system::FileInfo): []system::FileInfo {
 	trim_path := (path == ".")? "" : (slice(path, 2) + env::PATHSEP)
-		
 	size_limit := config::file_size_limit * 10e5
 	all := system::list_dir(path)
 	dirs, files := make([]system::FileInfo, 0), make([]system::FileInfo, 0)
@@ -50,15 +44,13 @@ fn get_files(path: str, t: []system::FileInfo): []system::FileInfo {
 			}
 		}
 	}
-	// table.sort(dirs, compare_file)
 	for _, f in dirs {
-		t = append(t, f)
+		fi := f
+		fi.name = trim_path + fi.name
+		t = append(t, fi)
 		t = get_files(path + env::PATHSEP + f.name, t)
 	}
-	// table.sort(files, compare_file)
-	for _, f in files {
-		t = append(t, f)
-	}
+	t = append(t, files)
 	return t
 }
 
@@ -72,44 +64,14 @@ fn project_scan_thread() {
 		if diff_files(cex::project_files, t) {
 			cex::project_files = t
 			cex::redraw = true
+			cex::project_files_changed = system::get_time()
 		}
 		resume()
 	 }
 }
 
-// fn cv(): ^commandview::CommandView { return ^commandview::CommandView(v) }
-// fn dv(): ^docview::DocView { return ^docview::DocView(v) }
 fn rv(): ^rootview::RootView { return ^rootview::RootView(cex::root_view) }
-// fn sv(v: cex::View): ^statusview::StatusView { return ^statusview::StatusView(v) }
-// fn lv(v: cex::View): ^logview::LogView { return ^logview::LogView(v) }
-
-fn load_plugins(): bool {
-	no_errors := true
-	files := system::list_dir(env::EXEDIR + "/data/plugins")
-	for _, info in files {
-		modname := "plugins." + strings::gsub(info.name, ".um$", "")
-		ok := true // NOTE state::core.try(require, modname)
-		if ok {
-			cex::log_quiet("Loaded plugin " + modname)
-		} else {
-			no_errors = false
-		}
-	}
-	return no_errors
-}
-
-fn load_project_module(): bool {
-	// filename := ".lite_project.lua"
-	// if system.get_file_info(filename) {
-	// return state::core.try(function()
-	// fn, err := loadfile(filename)
-	// if not fn { error("Error when loading project module:\n\t" .. err)}
-	// fn()
-	// state::core.log_quiet("Loaded project module")
-	// })
-	// }
-	return true
-}
+fn sv(): ^statusview::StatusView { return ^statusview::StatusView(cex::status_view) }
 
 fn count_views_referencing_doc(d: any): int {
 	ddoc := ^doc::Doc(d)
@@ -137,8 +99,10 @@ fn init*() {
 	cex::rv_defer_draw = fn(f: fn()) {
 		rv().defer_draw(f)
 	}
+	cex::sv_show_message = fn(icon: str, icon_color: renderer::Color, text: str) {
+		statusview::show_message(sv(), icon_color, icon, text)
+	}
 
-	// test()
 	project_dir := env::EXEDIR
 	files := make([]str, 0)
 	for i := 1; i < std::argc(); i++ {
@@ -166,35 +130,14 @@ fn init*() {
 
 	cex::add_thread(project_scan_thread, config::project_scan_rate)
 
-	got_plugin_error := !load_plugins()
-	got_user_error := false //!try(require, "user")
-	got_project_error := !load_project_module()
+	// NOTE use try
+	plugins::load()
 
 	for _, filename in files {
 		rv().open_doc(commandutils::open_doc(filename))
 	}
-	if got_plugin_error || got_user_error || got_project_error {
-		command::perform("core:open-log")
-	}
 	printf("CORE INITIALIZED\n")
 }
-
-// fn error(text: str) {
-// 	cex::core_log("!", style::accent, text)
-// }
-
-// fn try(fn, ...) {
-// 	local err
-// 	 ok, res := xpcall(fn, function(msg)
-// 		 item := state::core.error("%s", msg)
-// 		item.info = debug.traceback(nil, 2):gsub("\t", "")
-// 		err = msg
-//  }, ...)
-// 	if ok {
-// 		return true, res
-//  }
-// 	return false, err
-// }
 
 fn open_file_dropped(filename: str, mx, my: real) {
 	info, ok := system::get_file_info(filename)
@@ -323,10 +266,10 @@ fn run_threads(nowait: bool = false): bool {
 
 fn run*() {
 	for true {
-		// raw_log("RUN")
-		// printf("ACTIVE %s\n", cex::active_view.get_debug())
-		// cex::periodic("RV_TREE", 1, fn(){
-		// 	rootview::print_tree(rv().root_node)
+		// cex::periodic("PF", 2, fn() {
+		// 	for _, i in cex::project_files {
+		// 		printf("%v\n", i.name)
+		// 	}
 		// })
 		if cex::quit_request {
 			break

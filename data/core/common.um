@@ -40,28 +40,28 @@ fn is_utf8_cont*(c: char): bool {
 	return int(c) >= 0x80 && int(c) < 0xc0
 }
 
-fn utf8_chars_fail(text: str): []str {
-	pattern := "["
-	pattern += char(0x00)
-	pattern += "-"
-	pattern += char(0x7f)
-	pattern += char(0xc2)
-	pattern += "-"
-	pattern += char(0xf4)
-	pattern += "]["
-	pattern += char(0x80)
-	pattern += "-"
-	pattern += char(0xbf)
-	pattern += "]*"
-	// matches := strings::gmatch(text, "[\x00-\x7f\xc2-\xf4][\x80-\xbf]*")
-	// error: unterminated string
-	matches := strings::gmatch(text, pattern)
-	res := make([]str, len(matches))
-	for i, m in matches {
-		res[i] = m[0]
-	}
-	return res
-}
+// fn utf8_chars_fail(text: str): []str {
+// 	pattern := "["
+// 	pattern += char(0x00)
+// 	pattern += "-"
+// 	pattern += char(0x7f)
+// 	pattern += char(0xc2)
+// 	pattern += "-"
+// 	pattern += char(0xf4)
+// 	pattern += "]["
+// 	pattern += char(0x80)
+// 	pattern += "-"
+// 	pattern += char(0xbf)
+// 	pattern += "]*"
+// 	// matches := strings::gmatch(text, "[\x00-\x7f\xc2-\xf4][\x80-\xbf]*")
+// 	// error: unterminated string
+// 	matches := strings::gmatch(text, pattern)
+// 	res := make([]str, len(matches))
+// 	for i, m in matches {
+// 		res[i] = m[0]
+// 	}
+// 	return res
+// }
 
 fn utf8_chars*(text: str): []str {
 	res := make([]str, 0)

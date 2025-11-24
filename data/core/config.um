@@ -16,7 +16,7 @@ var (
 	max_undos*: int = 10000
 	highlight_current_line*: bool = true
 	line_height*: real = 1.2
-	indent_size*: int = 2
+	indent_size*: int = 4
 	tab_type*: str = "soft"
 	line_limit*: int = 80
 )

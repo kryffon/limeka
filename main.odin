@@ -153,14 +153,17 @@ main :: proc() {
 		argv[i] = (^u8)(strings.unsafe_string_to_cstring(os2.args[i]))
 	}
 
-	umka_main(argc, argv)
+	if umka_main(argc, argv) {
+		fmt.println("Running in failsafe mode")
+		umka_main(argc, argv, true)
+	}
 
 	ren_free_fonts()
 	sdl.DestroyWindow(window)
 	sdl.Quit()
 }
 
-umka_main :: proc(argc: i32, argv: []^u8) {
+umka_main :: proc(argc: i32, argv: []^u8, failsafe: bool = false) -> (comperr: bool) {
 	umka_code: cstring = `import "core.um"
 	fn main() {
 		core::init()
@@ -176,6 +179,7 @@ umka_main :: proc(argc: i32, argv: []^u8) {
 	if ok do ok = add_constants(U)
 	if ok do ok = api_load_libs(U)
 	if ok do ok = api_add_lite_modules(U)
+	if ok do ok = add_plugin_user_module(U, failsafe)
 	if ok do ok = umka.Compile(U)
 
 	if ok {
@@ -183,8 +187,10 @@ umka_main :: proc(argc: i32, argv: []^u8) {
 		if exitcode != 0 do umka.PrintRuntimeError(U)
 	} else {
 		umka.PrintCompileError(U)
+		comperr = true
 	}
 	umka.Free(U)
+	return
 }
 
 add_constants :: proc(U: umka.Context) -> bool {
