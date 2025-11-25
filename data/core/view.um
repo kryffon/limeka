@@ -91,13 +91,13 @@ fn update*(sz: real, size: common::Vec2, scroll: ^common::Scroll) {
 fn draw_background*(position, size: common::Vec2, color: renderer::Color) {
 	x, y := position.x, position.y
 	w, h := size.x, size.y
-	renderer::fdraw_rect(x, y, w + x % 1, h + y % 1, color)
+	renderer::draw_rect(x, y, w + x % 1, h + y % 1, color)
 }
 
 // s := get_scrollbar_rect(self)
 fn draw_scrollbar*(s: common::Rect, hovered, dragging: bool) {
 	highlight := hovered || dragging
 	color := (highlight)? style::scrollbar2 : style::scrollbar
-	renderer::fdraw_rect(s.x, s.y, s.w, s.h, color)
+	renderer::draw_rect(s.x, s.y, s.w, s.h, color)
 }
 

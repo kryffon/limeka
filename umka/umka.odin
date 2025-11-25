@@ -5,12 +5,20 @@ import "core:c"
 
 UMKA_SHARED :: #config(UMKA_SHARED, false)
 
-when ODIN_OS == .Linux {
-	foreign import lib {"linux/libumka.so" when UMKA_SHARED else "linux/libumka_static_linux.a"}
-	// } else when ODIN_OS == .Windows {
-	// 	foreign import lib {"windows/libumka.dll" when UMKA_SHARED else "windows/libumka_static_windows.a"}
+when ODIN_DEBUG {
+	when ODIN_OS == .Linux {
+		foreign import lib {"linux/libumka_debug.so" when UMKA_SHARED else "linux/libumka_static_linux_debug.a"}
+	} else {
+		#panic("This OS is not supported")
+	}
 } else {
-	#panic("This OS is not supported")
+	when ODIN_OS == .Linux {
+		foreign import lib {"linux/libumka.so" when UMKA_SHARED else "linux/libumka_static_linux.a"}
+		// } else when ODIN_OS == .Windows {
+		// 	foreign import lib {"windows/libumka.dll" when UMKA_SHARED else "windows/libumka_static_windows.a"}
+	} else {
+		#panic("This OS is not supported")
+	}
 }
 
 StackSlot :: struct #raw_union {
@@ -116,6 +124,9 @@ foreign lib {
 	GetBaseType :: proc(type: ^Type) -> ^Type ---
 	GetParamType :: proc(params: ^StackSlot, index: c.int) -> ^Type ---
 	GetResultType :: proc(params: ^StackSlot, result: ^StackSlot) -> ^Type ---
+	GetFieldType :: proc(structType: ^Type, fieldName: cstring) -> ^Type ---
+	GetMapKeyType :: proc(mapType: ^Type) -> ^Type ---
+	GetMapItemType :: proc(mapType: ^Type) -> ^Type ---
 }
 
 GetInstance :: #force_inline proc "contextless" (result: ^StackSlot) -> Context {

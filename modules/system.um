@@ -3,14 +3,46 @@ type Event* = struct {
 	a,b,c,d: real;
 }
 
-fn poll_event*(): []Event
-fn wait_event*(wt: real): bool
-fn set_cursor*(cursor: str)
-fn set_window_title*(title: str)
-fn set_window_mode*(mode: str)
-fn window_has_focus*(): bool
-fn show_confirm_dialog*(title, msg: str): bool
-fn chdir*(path: str): bool
+fn f_poll_event(): []Event
+fn poll_event*(): []Event {
+	return f_poll_event()
+}
+
+fn f_wait_event(wt: real): bool
+fn wait_event*(wt: real): bool {
+	return f_wait_event(wt)
+}
+
+fn f_set_cursor(cursor: str)
+fn set_cursor*(cursor: str) {
+	f_set_cursor(cursor)
+}
+
+fn f_set_window_title(title: str)
+fn set_window_title*(title: str) {
+	f_set_window_title(title)
+}
+
+fn f_set_window_mode(mode: str)
+fn set_window_mode*(mode: str) {
+	f_set_window_mode(mode)
+}
+
+fn f_window_has_focus(): bool
+fn window_has_focus*(): bool {
+	return f_window_has_focus()
+}
+
+fn f_show_confirm_dialog(title, msg: str): bool
+fn show_confirm_dialog*(title, msg: str): bool {
+	return f_show_confirm_dialog(title, msg)
+}
+
+fn f_chdir(path: str): bool
+fn chdir*(path: str): bool {
+	return f_chdir(path)
+}
+
 
 type FileInfo* = struct {
 	// name does not contain fullpath
@@ -20,20 +52,60 @@ type FileInfo* = struct {
 	is_dir: bool;
 }
 
-fn list_dir*(path: str): []FileInfo
-fn absolute_path*(path: str): (str, bool)
-fn get_file_info*(path: str): (FileInfo, bool)
-fn get_clipboard*(): str
-fn set_clipboard*(text: str)
-fn get_time*(): real
-fn sleep*(t: real)
-fn exec*(cmd: str)
-fn fuzzy_match*(string, pattern: str): (int, bool)
+fn f_list_dir(path: str): []FileInfo
+fn list_dir*(path: str): []FileInfo {
+	return f_list_dir(path)
+}
+
+fn f_absolute_path(path: str): (str, bool)
+fn absolute_path*(path: str): (str, bool) {
+	return f_absolute_path(path)
+}
+
+fn f_get_file_info(path: str): (FileInfo, bool)
+fn get_file_info*(path: str): (FileInfo, bool) {
+	return f_get_file_info(path)
+}
+
+fn f_get_clipboard(): str
+fn get_clipboard*(): str {
+	return f_get_clipboard()
+}
+
+fn f_set_clipboard(text: str)
+fn set_clipboard*(text: str) {
+	f_set_clipboard(text)
+}
+
+fn f_get_time(): real
+fn get_time*(): real {
+	return f_get_time()
+}
+
+fn f_sleep(t: real)
+fn sleep*(t: real) {
+	f_sleep(t)
+}
+
+fn f_exec(cmd: str)
+fn exec*(cmd: str) {
+	f_exec(cmd)
+}
+
+fn f_fuzzy_match(string, pattern: str): (int, bool)
+fn fuzzy_match*(string, pattern: str): (int, bool) {
+	return f_fuzzy_match(string, pattern)
+}
+
 
 type Match* = struct {
 	text: str;
 	line, col: int;
 }
 
-fn search_file_find*(pattern, file: str): []Match
+fn f_search_file_find(pattern, file: str): []Match
+fn search_file_find*(pattern, file: str): []Match {
+	return f_search_file_find(pattern, file)
+}
+
 

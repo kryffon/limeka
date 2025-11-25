@@ -79,13 +79,13 @@ f_draw_text :: proc "c" (params, result: ^umka.StackSlot) {
 // odinfmt: disable
 @(private="file")
 regs := []FuncReg {
-  { "show_debug",    f_show_debug    },
-  { "get_size",      f_get_size      },
-  { "begin_frame",   f_begin_frame   },
-  { "end_frame",     f_end_frame     },
-  { "set_clip_rect", f_set_clip_rect },
-  { "draw_rect",     f_draw_rect     },
-  { "draw_text",     f_draw_text     },
+  { "f_show_debug",    f_show_debug    },
+  { "f_get_size",      f_get_size      },
+  { "f_begin_frame",   f_begin_frame   },
+  { "f_end_frame",     f_end_frame     },
+  { "f_set_clip_rect", f_set_clip_rect },
+  { "f_draw_rect",     f_draw_rect     },
+  { "f_draw_text",     f_draw_text     },
 
   // font
   { "font_free",          f_gc            },

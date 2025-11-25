@@ -23,12 +23,12 @@ fn add*(s: Syntax) {
 	items = append(items, s)
 }
 
-fn get*(filename, header: str): ^Syntax {
+fn get*(filename, header: str): weak ^Syntax {
 	for i := len(items)-1; i>=0; i-- {
-		if _,_,ok := common::match_pattern(filename, items[i].files); ok {
+		if common::match_pattern(filename, items[i].files).item2 {
 			return &items[i]
 		}
-		if _,_,ok := common::match_pattern(header, items[i].headers); ok {
+		if common::match_pattern(header, items[i].headers).item2 {
 			return &items[i]
 		}
 	}

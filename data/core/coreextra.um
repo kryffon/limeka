@@ -56,6 +56,7 @@ type (
 
 var (
 	frame_start*: real
+	fps*: real
 	clip_rect_stack*: []common::Rect
 	log_items*: []LogItem
 	docs*: []any;
@@ -148,14 +149,14 @@ fn push_clip_rect*(x, y, w, h: real) {
 	b, r = common::fmin(b, b2), common::fmin(r, r2)
 	w, h = r-x, b-y
 	clip_rect_stack = append(clip_rect_stack, { x, y, w, h })
-	renderer::fset_clip_rect(x, y, w, h)
+	renderer::set_clip_rect(x, y, w, h)
 }
 
 fn pop_clip_rect*() {
 	clip_rect_stack = delete(clip_rect_stack, len(clip_rect_stack)-1)
 	cr := clip_rect_stack[len(clip_rect_stack)-1]
 	x, y, w, h := cr.x, cr.y, cr.w, cr.h
-	renderer::fset_clip_rect(x, y, w, h)
+	renderer::set_clip_rect(x, y, w, h)
 }
 
 // fn try(fn, ...) {

@@ -181,6 +181,8 @@ fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
 			{(sel.a.col > config::line_limit)? style::accent : style::text, style::font, "col: " + col},
 			{style::text, style::font, separator + percent + "%"},
 		}, {
+			{style::text, style::font, sprintf("fps: %.2f", cex::fps)},
+			{style::dim, style::font, separator2},
 			{style::text, style::font, memusagestr()},
 			{style::text, style::icon_font, "g"},
 			{style::dim, style::font, separator2},
@@ -189,6 +191,8 @@ fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
 	}
 
 	return {}, {
+		{style::text, style::font, sprintf("fps: %.2f", cex::fps)},
+		{style::dim, style::font, separator2},
 		{style::text, style::font, memusagestr()},
 		{style::text, style::icon_font, "g"},
 		{style::dim, style::font, separator2 + std::itoa(len(cex::docs))},

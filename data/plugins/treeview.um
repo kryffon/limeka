@@ -258,7 +258,7 @@ fn (self: ^TreeView) draw*() {
 
 		// -- hovered item background
 		if item == self.hovered_item {
-			renderer::fdraw_rect(x, y, w, h, style::line_highlight)
+			renderer::draw_rect(x, y, w, h, style::line_highlight)
 			color = style::accent
 		}
 

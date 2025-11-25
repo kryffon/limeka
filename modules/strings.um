@@ -1,20 +1,30 @@
-fn lower*(text: str): str
-fn upper*(text: str): str
+fn f_lower(text: str): str
+fn lower*(text: str): str {
+	return f_lower(text)
+}
+
+fn f_upper(text: str): str
+fn upper*(text: str): str {
+	return f_upper(text)
+}
 
 type Capture = struct {
 	s, e: int;
 }
 
-fn rfind(s, p: str, iter_offset: int, tptr: ^void): ([]Capture, int)
+fn f_find(s, p: str, iter_offset: int): ([]Capture, int)
 
 // plain search
-fn search*(s, ss: str, init: int = 0): (int, int, bool)
+fn f_search(s, ss: str, init: int): (int, int, bool)
+fn search*(s, ss: str, init: int = 0): (int, int, bool) {
+	return f_search(s, ss, init)
+}
 
 fn find*(text, pattern: str, init: int = 0, plain: bool = false): (int, int, bool) {
 	if plain {
-		return search(text, pattern, init)
+		return f_search(text, pattern, init)
 	}
-	captures, _ := rfind(text, pattern, init, typeptr([]Capture))
+	captures := f_find(text, pattern, init).item0
 	if len(captures) == 0 {
 		return 0, 0, false
 	}
@@ -23,7 +33,7 @@ fn find*(text, pattern: str, init: int = 0, plain: bool = false): (int, int, boo
 }
 
 fn match*(text, pattern: str, init: int = 0): []str {
-	captures, _ := rfind(text, pattern, init, typeptr([]Capture))
+	captures := f_find(text, pattern, init).item0
 	if len(captures) == 0 {
 		return []str{}
 	} else if len(captures) == 1 {
@@ -41,7 +51,7 @@ fn match*(text, pattern: str, init: int = 0): []str {
 // if entire == false it only returns captures
 fn gmatch*(text, pattern: str, init: int = 0, entire: bool = false): [][]str {
 	res := make([][]str, 0)
-	captures, iter_offset := rfind(text, pattern, init, typeptr([]Capture))
+	captures, iter_offset := f_find(text, pattern, init)
 	for len(captures) > 0 {
 		start := 0
 		if len(captures) > 1 && !entire {
@@ -53,7 +63,7 @@ fn gmatch*(text, pattern: str, init: int = 0, entire: bool = false): [][]str {
 			r = append(r, slice(text, c.s, c.e))
 		}
 		res = append(res, r)
-		captures, iter_offset = rfind(text, pattern, iter_offset, typeptr([]Capture))
+		captures, iter_offset = f_find(text, pattern, iter_offset)
 	}
 	return res
 }
@@ -76,14 +86,17 @@ fn sub*(s: str, i: int, j:int = -1): str {
 	return slice(s, i, j)
 }
 
-fn gsub*(s, pattern, repl: str): str
+fn f_gsub(s, pattern, repl: str): str
+fn gsub*(s, pattern, repl: str): str {
+	return f_gsub(s, pattern, repl)
+}
 
 fn gsub_fn*(text, pattern: str, repl: fn(r: str):str, cap_idx: int = 0): str {
 	pos := make([]Capture, 0)
-	captures, iter_offset := rfind(text, pattern, 0, typeptr([]Capture))
+	captures, iter_offset := f_find(text, pattern, 0)
 	for len(captures) > 0 {
 		pos = append(pos, captures[cap_idx])
-		captures, iter_offset = rfind(text, pattern, iter_offset, typeptr([]Capture))
+		captures, iter_offset = f_find(text, pattern, iter_offset)
 	}
 
 	var s: int = 0

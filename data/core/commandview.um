@@ -413,10 +413,10 @@ fn draw_suggestions_box(self: ^CommandView) {
 
 	// -- draw suggestions background
 	if len(self.suggestions) > 0 {
-		renderer::fdraw_rect(rx, ry, rw, rh, style::background3)
-		renderer::fdraw_rect(rx, ry - dh, rw, dh, style::divider)
+		renderer::draw_rect(rx, ry, rw, rh, style::background3)
+		renderer::draw_rect(rx, ry - dh, rw, dh, style::divider)
 		y := position.y - self.selection_offset - dh
-		renderer::fdraw_rect(rx, y, rw, lh, style::line_highlight)
+		renderer::draw_rect(rx, y, rw, lh, style::line_highlight)
 	}
 
 	// -- draw suggestion text
@@ -472,7 +472,7 @@ fn (self: ^CommandView) dv_draw_line_body*(idx: int, x, y: real) {
 		x1 := x + self.dv_get_col_x_offset(idx, col1)
 		x2 := x + self.dv_get_col_x_offset(idx, col2)
 		lh := self.dv_get_line_height()
-		renderer::fdraw_rect(x1, y, x2 - x1, lh, style::selection)
+		renderer::draw_rect(x1, y, x2 - x1, lh, style::selection)
 	}
 
 	// -- draw line highlight if caret is on this line
@@ -488,7 +488,7 @@ fn (self: ^CommandView) dv_draw_line_body*(idx: int, x, y: real) {
 	if line == idx && is_av && self.blink_timer < blink_period / 2 && system::window_has_focus() {
 		lh := self.dv_get_line_height()
 		x1 := x + self.dv_get_col_x_offset(line, col)
-		renderer::fdraw_rect(x1, y, style::caret_width, lh, style::caret)
+		renderer::draw_rect(x1, y, style::caret_width, lh, style::caret)
 	}
 }
 

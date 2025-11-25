@@ -322,7 +322,7 @@ fn (self: ^DocView) update*() {
 
 fn (self: ^DocView) draw_line_highlight*(x, y: real) {
 	lh := self.get_line_height()
-	renderer::fdraw_rect(x, y, self.size.x, lh, style::line_highlight)
+	renderer::draw_rect(x, y, self.size.x, lh, style::line_highlight)
 }
 
 fn (self: ^DocView) draw_line_text*(idx: int, x, y: real) {
@@ -348,7 +348,7 @@ fn (self: ^DocView) draw_line_body*(idx: int, x, y: real) {
 		x1 := x + self.get_col_x_offset(idx, col1)
 		x2 := x + self.get_col_x_offset(idx, col2)
 		lh := self.get_line_height()
-		renderer::fdraw_rect(x1, y, x2 - x1, lh, style::selection)
+		renderer::draw_rect(x1, y, x2 - x1, lh, style::selection)
 	}
 
 	// -- draw line highlight if caret is on this line
@@ -364,7 +364,7 @@ fn (self: ^DocView) draw_line_body*(idx: int, x, y: real) {
 	if line == idx && is_av && self.blink_timer < blink_period / 2 && system::window_has_focus() {
 		lh := self.get_line_height()
 		x1 := x + self.get_col_x_offset(line, col)
-		renderer::fdraw_rect(x1, y, style::caret_width, lh, style::caret)
+		renderer::draw_rect(x1, y, style::caret_width, lh, style::caret)
 	}
 }
 

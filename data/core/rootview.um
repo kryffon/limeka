@@ -326,8 +326,8 @@ fn (self: ^Node) draw_tabs*() {
 	x, y, w, h := self.get_tab_rect(0)
 	ds := style::divider_size
 	cex::push_clip_rect(x, y, self.size.x, h)
-	renderer::fdraw_rect(x, y, self.size.x, h, style::background2)
-	renderer::fdraw_rect(x, y + h - ds, self.size.x, ds, style::divider)
+	renderer::draw_rect(x, y, self.size.x, h, style::background2)
+	renderer::draw_rect(x, y + h - ds, self.size.x, ds, style::divider)
 
 	for i, view in self.views {
 		x, y, w, h = self.get_tab_rect(i)
@@ -335,9 +335,9 @@ fn (self: ^Node) draw_tabs*() {
 		color := style::dim
 		if selfptr(view) == selfptr(self.active_view) {
 			color = style::text
-			renderer::fdraw_rect(x, y, w, h, style::background)
-			renderer::fdraw_rect(x + w, y, ds, h, style::divider)
-			renderer::fdraw_rect(x - ds, y, ds, h, style::divider)
+			renderer::draw_rect(x, y, w, h, style::background)
+			renderer::draw_rect(x + w, y, ds, h, style::divider)
+			renderer::draw_rect(x - ds, y, ds, h, style::divider)
 		}
 		if i == self.hovered_tab {
 			color = style::text
@@ -363,7 +363,7 @@ fn (self: ^Node) draw*() {
 		cex::pop_clip_rect()
 	} else {
 		r := self.get_divider_rect().item0
-		renderer::fdraw_rect(r.x, r.y, r.w, r.h, style::divider)
+		renderer::draw_rect(r.x, r.y, r.w, r.h, style::divider)
 		self.a.draw()
 		self.b.draw()
 	}

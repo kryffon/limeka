@@ -163,17 +163,25 @@ main :: proc() {
 	sdl.Quit()
 }
 
+UMPROF :: #config(UMPROF, false)
+
 umka_main :: proc(argc: i32, argv: []^u8, failsafe: bool = false) -> (comperr: bool) {
 	umka_code: cstring = `import "core.um"
 	fn main() {
 		core::init()
 		core::run()
+		core::close()
 	}`
 
 
 	U := umka.Alloc()
 	// odinfmt: disable
 	ok := umka.Init(U, "main.um", umka_code, 1024 * 1024, nil, argc, raw_data(argv), true, false, umka.PrintCompileWarning)
+
+	when UMPROF {
+		umka.umprofInit(U)
+		defer umka.umprofDinit()
+	}
 	// odinfmt: enable
 
 	if ok do ok = add_constants(U)
@@ -188,6 +196,9 @@ umka_main :: proc(argc: i32, argv: []^u8, failsafe: bool = false) -> (comperr: b
 	} else {
 		umka.PrintCompileError(U)
 		comperr = true
+	}
+	when UMPROF {
+		umka.umprofPrintTable()
 	}
 	umka.Free(U)
 	return

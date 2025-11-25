@@ -26,13 +26,12 @@ f_upper :: proc "c" (params, result: ^umka.StackSlot) {
 	umka.GetResult(params, result).ptrVal = rawptr(umka.MakeStr(U, upper_c))
 }
 
-f_rfind :: proc "c" (params, result: ^umka.StackSlot) {
+f_find :: proc "c" (params, result: ^umka.StackSlot) {
 	context = runtime.default_context()
 	U := umka.GetInstance(result)
 	text := cstring(umka.GetParam(params, 0).ptrVal)
 	pattern := cstring(umka.GetParam(params, 1).ptrVal)
 	offset := umka.GetParam(params, 2).intVal
-	dtype := (^umka.Type)(umka.GetParam(params, 3).ptrVal)
 
 	Capture :: struct {
 		s, e: i64,
@@ -60,6 +59,8 @@ f_rfind :: proc "c" (params, result: ^umka.StackSlot) {
 	}
 	res := (^Result)(umka.GetResult(params, result).ptrVal)
 	n := len(captures)
+	rtype := umka.GetResultType(params, result)
+	dtype := umka.GetFieldType(rtype, "item0")
 	umka.MakeDynArray(U, &res.captures, dtype, i32(n))
 	_ = runtime.copy_slice_raw(res.captures.data, raw_data(captures), n, n, size_of(Capture))
 	res.offset = ret_offset
@@ -96,11 +97,11 @@ f_gsub :: proc "c" (params, result: ^umka.StackSlot) {
 // odinfmt: disable
 @(private="file")
 regs := [?]FuncReg {
-	{"lower",  f_lower  },
-	{"upper",  f_upper  },
-	{"rfind",  f_rfind  },
-	{"search", f_search },
-	{"gsub",   f_gsub   },
+	{"f_lower",  f_lower  },
+	{"f_upper",  f_upper  },
+	{"f_find",   f_find   },
+	{"f_search", f_search },
+	{"f_gsub",   f_gsub   },
 
 }
 // odinfmt: enable

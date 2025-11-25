@@ -89,7 +89,7 @@ fn draw_text(x, y: real, color: renderer::Color): (real, real) {
 	dh := th + style::padding.y * 2
 	x = renderer::draw_text(style::big_font, "lite", x, y + (dh - th) / 2, color)
 	x = x + style::padding.x
-	renderer::fdraw_rect(x, y, ceil(1 * env::SCALE), dh, color)
+	renderer::draw_rect(x, y, ceil(1 * env::SCALE), dh, color)
 	lines := []str{
 		sprintf("%s to run a command", keymap::get_binding("core:find-command")),
 		sprintf("%s to open a file from the project", keymap::get_binding("core:find-file")),

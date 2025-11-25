@@ -167,121 +167,104 @@ poll_event_helper :: proc(U: umka.Context, events: ^[dynamic]Event) {
 	mx, my, wx, wy: i32
 	e: sdl.Event
 
-	if (!sdl.PollEvent(&e)) {
-		return
-	}
+	for sdl.PollEvent(&e) {
+		#partial switch (e.type) {
+		case .QUIT:
+			append(events, Event{type = umka.MakeStr(U, QUIT)})
 
-	#partial switch (e.type) {
-	case .QUIT:
-		append(events, Event{type = umka.MakeStr(U, QUIT)})
-		return
+		case .WINDOWEVENT:
+			if (e.window.event == sdl.WindowEventID.RESIZED) {
+				append(
+					events,
+					Event {
+						type = umka.MakeStr(U, RESIZED),
+						x = f64(e.window.data1),
+						y = f64(e.window.data2),
+					},
+				)
+			} else if (e.window.event == sdl.WindowEventID.EXPOSED) {
+				rencache_invalidate()
+				append(events, Event{type = umka.MakeStr(U, EXPOSED)})
+			}
+			/* on some systems, when alt-tabbing to the window SDL will queue up
+         * several KEYDOWN events for the `tab` key; we flush all keydown
+         * events on focus so these are discarded */
+			if (e.window.event == sdl.WindowEventID.FOCUS_GAINED) {
+				sdl.FlushEvent(sdl.EventType.KEYDOWN)
+			}
+		// continue
 
-	case .WINDOWEVENT:
-		if (e.window.event == sdl.WindowEventID.RESIZED) {
+		case .DROPFILE:
+			sdl.GetGlobalMouseState(&mx, &my)
+			sdl.GetWindowPosition(window, &wx, &wy)
 			append(
 				events,
 				Event {
-					type = umka.MakeStr(U, RESIZED),
-					x = f64(e.window.data1),
-					y = f64(e.window.data2),
+					type = umka.MakeStr(U, FILEDROPPED),
+					s = umka.MakeStr(U, e.drop.file),
+					x = f64(mx - wx),
+					y = f64(my - wy),
 				},
 			)
-			return
-		} else if (e.window.event == sdl.WindowEventID.EXPOSED) {
-			rencache_invalidate()
-			append(events, Event{type = umka.MakeStr(U, EXPOSED)})
-			return
+			sdl.free(cast([^]u8)e.drop.file)
+
+		case .KEYDOWN:
+			kname := key_name(buf[:], e.key.keysym.sym)
+			append(events, Event{type = umka.MakeStr(U, KEYPRESSED), s = umka.MakeStr(U, kname)})
+
+		case .KEYUP:
+			kname := key_name(buf[:], e.key.keysym.sym)
+			append(events, Event{type = umka.MakeStr(U, KEYRELEASED), s = umka.MakeStr(U, kname)})
+
+		case .TEXTINPUT:
+			text := cstring(raw_data(e.text.text[:]))
+			append(events, Event{type = umka.MakeStr(U, TEXTINPUT), s = umka.MakeStr(U, text)})
+
+		case .MOUSEBUTTONDOWN:
+			if (e.button.button == 1) {
+				sdl.CaptureMouse(true)
+			}
+			append(
+				events,
+				Event {
+					type = umka.MakeStr(U, MOUSEPRESSED),
+					s = umka.MakeStr(U, button_name(e.button.button)),
+					x = f64(e.button.x),
+					y = f64(e.button.y),
+					w = f64(e.button.clicks),
+				},
+			)
+
+		case .MOUSEBUTTONUP:
+			if (e.button.button == 1) {
+				sdl.CaptureMouse(false)
+			}
+			append(
+				events,
+				Event {
+					type = umka.MakeStr(U, MOUSERELEASED),
+					s = umka.MakeStr(U, button_name(e.button.button)),
+					x = f64(e.button.x),
+					y = f64(e.button.y),
+				},
+			)
+
+		case .MOUSEMOTION:
+			append(
+				events,
+				Event {
+					type = umka.MakeStr(U, MOUSEMOVED),
+					x = f64(e.motion.x),
+					y = f64(e.motion.y),
+					w = f64(e.motion.xrel),
+					z = f64(e.motion.yrel),
+				},
+			)
+
+		case .MOUSEWHEEL:
+			append(events, Event{type = umka.MakeStr(U, MOUSEWHEEL), x = f64(e.wheel.y)})
+
 		}
-		/* on some systems, when alt-tabbing to the window SDL will queue up
-         * several KEYDOWN events for the `tab` key; we flush all keydown
-         * events on focus so these are discarded */
-		if (e.window.event == sdl.WindowEventID.FOCUS_GAINED) {
-			sdl.FlushEvent(sdl.EventType.KEYDOWN)
-		}
-		poll_event_helper(U, events)
-		return
-
-	case .DROPFILE:
-		sdl.GetGlobalMouseState(&mx, &my)
-		sdl.GetWindowPosition(window, &wx, &wy)
-		append(
-			events,
-			Event {
-				type = umka.MakeStr(U, FILEDROPPED),
-				s = umka.MakeStr(U, e.drop.file),
-				x = f64(mx - wx),
-				y = f64(my - wy),
-			},
-		)
-		sdl.free(cast([^]u8)e.drop.file)
-		return
-
-	case .KEYDOWN:
-		kname := key_name(buf[:], e.key.keysym.sym)
-		append(events, Event{type = umka.MakeStr(U, KEYPRESSED), s = umka.MakeStr(U, kname)})
-		return
-
-	case .KEYUP:
-		kname := key_name(buf[:], e.key.keysym.sym)
-		append(events, Event{type = umka.MakeStr(U, KEYRELEASED), s = umka.MakeStr(U, kname)})
-		return
-
-	case .TEXTINPUT:
-		text := cstring(raw_data(e.text.text[:]))
-		append(events, Event{type = umka.MakeStr(U, TEXTINPUT), s = umka.MakeStr(U, text)})
-		return
-
-	case .MOUSEBUTTONDOWN:
-		if (e.button.button == 1) {
-			sdl.CaptureMouse(true)
-		}
-		append(
-			events,
-			Event {
-				type = umka.MakeStr(U, MOUSEPRESSED),
-				s = umka.MakeStr(U, button_name(e.button.button)),
-				x = f64(e.button.x),
-				y = f64(e.button.y),
-				w = f64(e.button.clicks),
-			},
-		)
-		return
-
-	case .MOUSEBUTTONUP:
-		if (e.button.button == 1) {
-			sdl.CaptureMouse(false)
-		}
-		append(
-			events,
-			Event {
-				type = umka.MakeStr(U, MOUSERELEASED),
-				s = umka.MakeStr(U, button_name(e.button.button)),
-				x = f64(e.button.x),
-				y = f64(e.button.y),
-			},
-		)
-		return
-
-	case .MOUSEMOTION:
-		append(
-			events,
-			Event {
-				type = umka.MakeStr(U, MOUSEMOVED),
-				x = f64(e.motion.x),
-				y = f64(e.motion.y),
-				w = f64(e.motion.xrel),
-				z = f64(e.motion.yrel),
-			},
-		)
-		return
-
-	case .MOUSEWHEEL:
-		append(events, Event{type = umka.MakeStr(U, MOUSEWHEEL), x = f64(e.wheel.y)})
-		return
-
-	case:
-		poll_event_helper(U, events)
-		return
 	}
 }
 
@@ -586,24 +569,24 @@ f_fuzzy_match :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 // odinfmt: disable
 @(private="file")
 regs := [?]FuncReg {
-  { "poll_event",          f_poll_event          },
-  { "wait_event",          f_wait_event          },
-  { "set_cursor",          f_set_cursor          },
-  { "set_window_title",    f_set_window_title    },
-  { "set_window_mode",     f_set_window_mode     },
-  { "window_has_focus",    f_window_has_focus    },
-  { "show_confirm_dialog", f_show_confirm_dialog },
-  { "chdir",               f_chdir               },
-  { "list_dir",            f_list_dir            },
-  { "absolute_path",       f_absolute_path       },
-  { "get_file_info",       f_get_file_info       },
-  { "get_clipboard",       f_get_clipboard       },
-  { "set_clipboard",       f_set_clipboard       },
-  { "get_time",            f_get_time            },
-  { "sleep",               f_sleep               },
-  { "exec",                f_exec                },
-  { "fuzzy_match",         f_fuzzy_match         },
-  { "search_file_find",    f_search_file_find    },
+  { "f_poll_event",          f_poll_event          },
+  { "f_wait_event",          f_wait_event          },
+  { "f_set_cursor",          f_set_cursor          },
+  { "f_set_window_title",    f_set_window_title    },
+  { "f_set_window_mode",     f_set_window_mode     },
+  { "f_window_has_focus",    f_window_has_focus    },
+  { "f_show_confirm_dialog", f_show_confirm_dialog },
+  { "f_chdir",               f_chdir               },
+  { "f_list_dir",            f_list_dir            },
+  { "f_absolute_path",       f_absolute_path       },
+  { "f_get_file_info",       f_get_file_info       },
+  { "f_get_clipboard",       f_get_clipboard       },
+  { "f_set_clipboard",       f_set_clipboard       },
+  { "f_get_time",            f_get_time            },
+  { "f_sleep",               f_sleep               },
+  { "f_exec",                f_exec                },
+  { "f_fuzzy_match",         f_fuzzy_match         },
+  { "f_search_file_find",    f_search_file_find    },
 }
 // odinfmt: enable
 

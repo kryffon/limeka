@@ -10,18 +10,38 @@ type Color* = struct {
 	r,g,b,a: uint8;
 }
 
-fn show_debug*(show: bool)
-fn get_size*(): (int, int)
-fn begin_frame*()
-fn end_frame*()
-fn set_clip_rect*(x,y,w,h: int)
-fn draw_rect*(x,y,w,h: int, color: Color)
-fn draw_text*(font: Font, text: str, x,y: real, color: Color): int
-	
-fn fdraw_rect*(x, y, w, h: real, color: Color) {
- 	draw_rect(round(x), round(y), round(w), round(h), color)
+fn f_show_debug(show: bool)
+fn show_debug*(show: bool) {
+	f_show_debug(show)
 }
 
-fn fset_clip_rect*(x, y, w, h: real) {
-	set_clip_rect(round(x), round(y), round(w), round(h))
-}	
+fn f_get_size(): (int, int)
+fn get_size*(): (int, int) {
+	return f_get_size()
+}
+
+fn f_begin_frame()
+fn begin_frame*() {
+	f_begin_frame()
+}
+
+fn f_end_frame()
+fn end_frame*() {
+	f_end_frame()
+}
+
+fn f_set_clip_rect(x,y,w,h: int)
+fn set_clip_rect*(x,y,w,h: real) {
+	f_set_clip_rect(round(x), round(y), round(w), round(h))
+}
+
+fn f_draw_rect(x,y,w,h: int, color: Color)
+fn draw_rect*(x,y,w,h: real, color: Color) {
+	f_draw_rect(round(x), round(y), round(w), round(h), color)	
+}
+
+fn f_draw_text(font: Font, text: str, x,y: real, color: Color): int
+fn draw_text*(font: Font, text: str, x,y: real, color: Color): int {
+	return f_draw_text(font, text, x,y, color)	
+}
+
