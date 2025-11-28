@@ -33,9 +33,9 @@ fn window_has_focus*(): bool {
 	return f_window_has_focus()
 }
 
-fn f_show_confirm_dialog(title, msg: str): bool
+fn f_show_confirm_dialog(title, msg: str): int
 fn show_confirm_dialog*(title, msg: str): bool {
-	return f_show_confirm_dialog(title, msg)
+	return f_show_confirm_dialog(title, msg) == 1
 }
 
 fn f_chdir(path: str): bool

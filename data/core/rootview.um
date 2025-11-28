@@ -523,10 +523,10 @@ fn (self: ^RootView) on_mouse_moved*(x, y, dx, dy: real) {
 	}
 }
 
-fn (self: ^RootView) on_mouse_wheel*(_: real) {
+fn (self: ^RootView) on_mouse_wheel*(wy: real) {
 	x, y := self.mouse.x, self.mouse.y
 	node := self.root_node.get_child_overlapping_point(x, y)
-	node.active_view.on_mouse_wheel(y)
+	node.active_view.on_mouse_wheel(wy)
 }
 
 fn (self: ^RootView) on_text_input*(text: str) {

@@ -137,7 +137,7 @@ fn load_commands_core() {
 		"core:force-quit": fn() { quit(true) },
 		"core:toggle-fullscreen": fn() {
 			fullscreen = !fullscreen
-			system::set_window_mode(fullscreen ? "fullscreen" : "normal")
+			system::set_window_mode((fullscreen ? "fullscreen" : "normal"))
 		},
 		"core:find-command": fn() {
 			commands := command::get_all_valid()
@@ -263,6 +263,43 @@ fn append_line_if_last_line(line: int) {
 fn save(filename: str = "") {
 	doc().save(filename)
 	cex::log_info(sprintf("Saved \"%s\"", doc().filename))
+}
+
+var gtl_items: struct {
+	items: []cex::Suggestion;
+	doc: ^doc::Doc;
+}
+
+fn gtl_init_items() {
+	d := doc()
+	if gtl_items.doc == d {
+		return 
+	}
+	gtl_items = {}
+	gtl_items.doc = d
+	for i, line in d.lines {
+		gtl_items.items = append(gtl_items.items, {
+			text: slice(line, 0, len(line)-1),
+			line: i+1,
+			info: "line: " + std::itoa(i+1),
+		})
+	}
+}
+
+fn fuzzy_match_suggestions(items: []cex::Suggestion, needle: str): []cex::Suggestion {
+	scores := make([]common::Pair, 0)
+	for i, haystack in items {
+		s, ok := system::fuzzy_match(haystack.text, needle)
+		if ok {
+			scores = append(scores, {s, i})
+		}
+	}
+	sort(scores, false, score)
+	res := make([]cex::Suggestion, len(scores))
+	for i, p in scores {
+		res[i] = items[p.index]
+	}
+	return res
 }
 
 fn load_commands_doc() {
@@ -443,36 +480,32 @@ fn load_commands_doc() {
 		"doc:lower-case": fn () {
 			doc().replace(fn(s: str): (str, int) { return strings::lower(s), len(s) })
 		},
-		// "doc:go-to-line": fn () {
-		// 	dv := dv()
-		// 	items
-		// 	init_items := fn(){
-		// 			if items { return}
-		// 			items := {}
-		// 	mt := { __tostring = fn (x) return x.text} } {
-		// 			for i, line in ipairs(dv.doc.lines) {
-		// 	item := { text = line:sub(1, -2), line = i, info = "line: " .. i }
-		// 				table.insert(items, setmetatable(item, mt))
-		// 		 }
-		// 	}
-
-		// 		state::core.command_view:enter("Go To Line", fn (text, item) {
-		// 	line := item and item.line or tonumber(text)
-		// 			if not line {
-		// 				state::core.error("Invalid line number or unmatched string")
-		// 				return
-		// 		 }
-		// 			dv.doc:set_selection(line, 1  )
-		// 			dv:scroll_to_line(line, true)
-
-		// 	}, fn (text) {
-		// 			if not text:find("^%d*$") {
-		// 				init_items()
-		// 				return common.fuzzy_match(items, text)
-		// 		 }
-		// 	})
-		// 	},
-
+		"doc:go-to-line": fn () {
+			gtl_items = {}
+			submit := fn(text: str, item: ^cex::Suggestion) {
+				var line: int
+				if item != null {
+					line = item.line
+				} else {
+					if strings::find(text, "^%d*$").item2 {
+						line = std::atoi(text)
+					} else {
+						cex::log_error("invalid line number or unmatched string")
+						return
+					}
+				}
+				dv(cex::active_view).doc.set_selection(line-1, 0)
+				dv(cex::active_view).scroll_to_line(line-1, true)
+			}
+			suggest := fn(text: str): []cex::Suggestion {
+				if !strings::find(text, "^%d*$").item2 {
+					gtl_init_items()
+					return fuzzy_match_suggestions(gtl_items.items, text)
+				}
+				return {}
+			}
+			cv(cex::command_view).enter("Go To Line", submit, suggest, cancel_default)
+		},
 		"doc:toggle-line-ending": fn () { doc().crlf = !doc().crlf },
 		"doc:save-as": fn () {
 			if len(doc().filename) > 0 {
@@ -649,19 +682,19 @@ fn find(label: str, search_fn: SearchFunc) {
 }
 
 
-// fn replace(kind, def: str, f: fn(t,o,n: str): str) {
-// 	cv(cex::command_view).set_text(def, true)
-// 	cv(cex::command_view).enter("Find To Replace " + kind, fn (old: str, _: ^cex::Suggestion) |kind, f| {
-// 		cv(cex::command_view).set_text(old, true)
-// 		s := sprintf("Replace %s %s With", kind, old)
-// 		cv(cex::command_view).enter(s, fn (newtext: str, _: ^cex::Suggestion) |f| {
-// 			n := doc().replace(fn (text: str): str |f, old, newtext, kind| {
-// 				return f(text, old, newtext)
-// 			})
-// 			cex::log_info(sprintf("Replaced %d instance(s) of %s %q with %q", n, kind, old, newtext))
-// 		}, suggest_default, cancel_default)
-// 	}, suggest_default, cancel_default)
-// }
+fn replace(kind, def: str, f: fn(t,o,n: str): (str, int)) {
+	cv(cex::command_view).set_text(def, true)
+	cv(cex::command_view).enter("Find To Replace " + kind, fn (old: str, _: ^cex::Suggestion) |kind, f| {
+		cv(cex::command_view).set_text(old, true)
+		s := sprintf("Replace %s %s With", kind, old)
+		cv(cex::command_view).enter(s, fn (newtext: str, _: ^cex::Suggestion) |kind, f, old| {
+			n := doc().replace(fn (text: str): (str, int) |f, old, newtext| {
+				return f(text, old, newtext)
+			})
+			cex::log_info(sprintf("Replaced %d instance(s) of %s %v with %v", n, kind, old, newtext))
+		}, suggest_default, cancel_default)
+	}, suggest_default, cancel_default)
+}
 
 fn has_selection(): bool {
 	return has_docview() && doc().has_selection()
@@ -704,45 +737,48 @@ fn load_commands_find_replace*() {
 			})
 		},
 		"find-replace:repeat-find": replace_repeat_find,
-		// "find-replace:previous-find": fn() {
-		// sel := table.remove(previous_finds)
-		// 	if not sel or doc() ~= last_doc {
-		// 		state::core.error("No previous finds")
-		// 		return
-		// 	}
-		// 	doc().set_selection(table.unpack(sel))
-		// 	state::core.active_view:scroll_to_line(sel[3], true)
-		// },
-
-		// "find-replace:replace": fn() {
-		// 	replace("Text", "", fn (text, old, new) {
-		// 		return text:gsub(old:gsub("%W", "%%%1"), new:gsub("%%", "%%%%"), nil)
-		// 	})
-		// },
-
-		// "find-replace:replace-pattern": fn() {
-		// 	replace("Pattern", "", fn (text, old, new) {
-		// 		return text:gsub(old, new)
-		// 	})
-		// },
-
-		// "find-replace:replace-symbol": fn() {
-		// first := ""
-		// 	if doc().has_selection() {
-		// text := doc().get_text(doc().get_selection())
-		// 		first = text:match(state::config.symbol_pattern) or ""
-		// 	}
-		// 	replace("Symbol", first, fn (text, old, new) {
-		// n := 0
-		// res := text:gsub(state::config.symbol_pattern, fn (sym) {
-		// 			if old == sym {
-		// 				n = n + 1
-		// 				return new
-		// 			}
-		// 		})
-		// 		return res, n
-		// 	})
-		// },
+		"find-replace:previous-find": fn() {
+			if len(previous_finds) == 0 || doc() != last_doc {
+				cex::log_error("No previous finds")
+				return
+			}
+			sel := previous_finds[len(previous_finds)-1]
+			previous_finds = delete(previous_finds, len(previous_finds)-1)
+			doc().set_selection(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+			dv(cex::active_view).scroll_to_line(sel.b.line, true)
+		},
+		"find-replace:replace": fn() {
+			replace("Text", "", fn (text, old, news: str): (str, int) {
+				return strings::gsub(text, strings::gsub(old, "%W", "%%%1"), strings::gsub(news, "%%", "%%%%")), 0
+			})
+		},
+		"find-replace:replace-pattern": fn() {
+			replace("Pattern", "", fn (text, old, news: str): (str, int) {
+				return strings::gsub(text, old, news), 0
+			})
+		},
+		"find-replace:replace-symbol": fn() {
+			first := ""
+			if doc().has_selection() {
+				sel := doc().get_selection().item0
+				text := doc().get_text(sel.a.line, sel.a.col, sel.b.line, sel.b.col)
+				matches := strings::match(text, config::symbol_pattern)
+				if len(matches) > 0 {
+					first = matches[0]
+				}
+			}
+			replace("Symbol", first, fn (text, old, news: str): (str, int) {
+				n := 0
+				res := strings::gsub_fn(text, config::symbol_pattern, fn (sym: str): str |old, news| {
+					if old == sym {
+						// n = n + 1
+						return news
+					}
+					return sym
+				})
+				return res, n
+			})
+		},
 	})
 
 }

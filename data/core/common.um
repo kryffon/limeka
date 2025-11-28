@@ -212,6 +212,7 @@ fn is_prefix_lower(a, b: str): bool {
 
 // NOTE i dont know why but i dont want to write this exactly like they did in lua
 fn path_suggest*(text: str): []str {
+	if text == "" { text = "." }
 	pos := 0
 	for i := len(text)-1; i >= 0; i-- {
 		if text[i] == env::PATHSEP {

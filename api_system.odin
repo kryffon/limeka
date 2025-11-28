@@ -367,8 +367,7 @@ f_show_confirm_dialog :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackS
 		sdl.ShowMessageBox(&data, &buttonid)
 		b = buttonid == 1
 	}
-	res := (^bool)(umka.GetResult(params, result).ptrVal)
-	res^ = b
+	umka.GetResult(params, result).intVal = i64(b)
 }
 
 Error :: struct {

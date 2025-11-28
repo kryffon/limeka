@@ -19,6 +19,7 @@ type (
 	
 	Suggestion* = struct {
 		text, info, command: str;
+		line: int;
 	}
 
 	SubmitFunc* = fn(text: str, item: ^Suggestion)

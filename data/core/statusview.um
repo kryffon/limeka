@@ -168,9 +168,9 @@ fn (self: ^StatusView) get_items*(): ([]Message, []Message) {
 	if is_active_doc_view() {
 		dv := ^docview::DocView(cex::active_view)
 		sel, _ := dv.doc.get_selection()
-		line := std::itoa(sel.a.line)
-		col := std::itoa(sel.a.col)
-		percent := std::itoa(floor(real(sel.a.line)*100/real(len(dv.doc.lines))))
+		line := std::itoa(sel.a.line + 1)
+		col := std::itoa(sel.a.col + 1)
+		percent := std::itoa(floor(real(sel.a.line + 1)*100/real(len(dv.doc.lines))))
 		dirty := dv.doc.is_dirty()
 
 		return {

@@ -75,7 +75,7 @@ fn (self: ^Highlighter) tokenize_line*(idx: int, state: int): LineTokens {
 }
 
 // NOTE should it be weak ref?
-fn highlighter_thread*(self: ^Highlighter) {
+fn highlighter_thread*(self: weak ^Highlighter) {
 	for true {
 		if cex::quit_request { break }
 		if self.quit { break }
@@ -140,8 +140,8 @@ fn (self: ^Doc) line_tokens*(idx: int): []tokenizer::Token {
 	return self.highlighter.get_line(idx).tokens
 }
 
-fn split_lines(text: str): []str {
-	text += '\n'
+fn split_lines(t: str): []str {
+	text := t + '\n'
 	res := make([]str, 0)
 	start := 0
 	for i in text {
@@ -364,7 +364,7 @@ fn (self: ^Doc) raw_remove*(line1, col1, line2, col2: int, undo_stack: ^Stack, t
 }
 
 fn (self: ^Doc) insert_multiline*(line, col: int, text: str) {
-	self.redo_stack.idx = 1 
+	self.redo_stack.idx = 0 
 	line, col = self.sanitize_position(line, col)
 	self.raw_insert(line, col, text, &self.undo_stack, system::get_time())
 }
@@ -394,28 +394,29 @@ fn (self: ^Doc) redo*() {
 }
 
 fn (self: ^Doc) delete_to*(f: TranslateFunc, args: ..int) {
-	sel, _ := self.get_selection(true)
+	sel := self.get_selection(true).item0
 	line, col := sel.a.line, sel.a.col
 	if self.has_selection() {
-		sel1, _ := self.get_selection()
+		sel1 := self.get_selection().item0
 		self.remove(sel1.a.line, sel1.b.col, sel1.a.line, sel1.b.col)
 	} else {
 		line2, col2 := self.position_offset(line, col, f, args)
 		self.remove(line, col, line2, col2)
 		var _a, _b: int
-		line, col, _a, _b, _ = sort_positions(line, col, line2, col2)
+		var _ok: bool
+		line, col, _a, _b, _ok = sort_positions(line, col, line2, col2)
 	}
 	self.set_selection(line, col)
 }
 
 fn (self: ^Doc) move_to*(f: TranslateFunc, args: ..int) {
-	sel, _ := self.get_selection()
+	sel := self.get_selection().item0
 	line, col := self.position_offset(sel.a.line, sel.a.col, f, args)
 	self.set_selection(line, col)
 }
 
 fn (self: ^Doc) select_to*(f: TranslateFunc, args: ..int) {
-	sel, _ := self.get_selection()
+	sel := self.get_selection().item0
 	line, col := self.position_offset(sel.a.line, sel.a.col, f, args)
 	self.set_selection(line, col, sel.b.line, sel.b.col)
 }
@@ -424,7 +425,7 @@ fn (self: ^Doc) text_input*(text: str) {
 	if self.has_selection() {
 		self.delete_to(noop)
 	}
-	sel, _ := self.get_selection()
+	sel := self.get_selection().item0
 	self.insert(sel.a.line, sel.a.col, text)
 	self.move_to(noop, len(text))
 }
@@ -530,7 +531,7 @@ fn (self: ^Doc) save*(filename: str = "") {
 	std::exitif(err)
 	for _, line in self.lines {
 		if self.crlf { line = strings::gsub(line, "\n", "\r\n")}
-		std::fwrite(fp, line)
+		std::fwrite(fp, []char(line))
 	}
 	std::fclose(fp)
 	self.filename = filename

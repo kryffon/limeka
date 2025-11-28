@@ -283,7 +283,7 @@ fn run*() {
 		elapsed := system::get_time() - cex::frame_start
 		system::sleep(common::fmax(0.0, 1.0 / config::fps - elapsed))
 		frame_time := system::get_time() - cex::frame_start
-		cex::fps = 1.0/elapsed
+		cex::fps = 1.0/frame_time
 	}
 }
 

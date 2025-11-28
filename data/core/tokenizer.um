@@ -52,7 +52,7 @@ fn find_non_escaped(text: str, p: ^syntax::Pattern, offset: int): (int, int, boo
 	return 0, 0, false
 }
 
-fn tokenize*(syn: ^syntax::Syntax, text: str, state: int = NULL_STATE): ([]Token, int) {
+fn tokenize*(syn: weak ^syntax::Syntax, text: str, state: int = NULL_STATE): ([]Token, int) {
 	if syn == null  || len(syn.patterns) == 0 {
 		return []Token{{typ: "normal", text: text}}, NULL_STATE
 	}
