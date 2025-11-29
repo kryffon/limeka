@@ -18,3 +18,5 @@
 > NOTE:
 > 1. the executable and `data/` must be in the same dir
 > 2. There are probably bugs not fixed yet.
+> 3. It has memory leaks
+> 4. not tested in windows at all
