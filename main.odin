@@ -207,7 +207,9 @@ umka_main :: proc(argc: i32, argv: []^u8, failsafe: bool = false) -> (comperr: b
 add_constants :: proc(U: umka.Context) -> bool {
 	// for now this quick-dirty way is good enough
 	str_scale, found := os2.lookup_env_alloc("LITE_SCALE", context.temp_allocator)
-	scale: f64 = strconv.atof(str_scale) if found else get_scale()
+	scale: f64
+	if found do scale, found = strconv.parse_f64(str_scale)
+	if !found do scale = get_scale()
 
 	exe_filename := get_exe_filename()
 	exe_dir := filepath.dir(string(exe_filename), context.temp_allocator)
@@ -216,11 +218,11 @@ add_constants :: proc(U: umka.Context) -> bool {
 		`const(
 	VERSION* = "1.11"
 	// ARGS = std::argv(i: int): str
-	PLATFORM* = "%s"
+	PLATFORM* = %q
 	SCALE* = %f
-	EXEFILE* = "%s"
+	EXEFILE* = %q
 	PATHSEP* = char(%d)
-	EXEDIR* = "%s"
+	EXEDIR* = %q
 	REAL_MAX* = %e
 	REAL_MIN* = %e
 	INT_MAX* = %d

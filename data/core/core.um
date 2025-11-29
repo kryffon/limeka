@@ -136,7 +136,6 @@ fn init*() {
 	for _, filename in files {
 		rv().open_doc(commandutils::open_doc(filename))
 	}
-	printf("CORE INITIALIZED\n")
 }
 
 fn open_file_dropped(filename: str, mx, my: real) {
@@ -266,11 +265,6 @@ fn run_threads(nowait: bool = false): bool {
 
 fn run*() {
 	for true {
-		// cex::periodic("PF", 2, fn() {
-		// 	for _, i in cex::project_files {
-		// 		printf("%v\n", i.name)
-		// 	}
-		// })
 		if cex::quit_request {
 			break
 		}
@@ -290,7 +284,6 @@ fn run*() {
 fn close*() {
 	// NOTE - is this correct ? QUITING fibers
 	for len(cex::threads) > 0 {
-		cex::raw_log(sprintf("THREADS: %v", len(cex::threads)))
 		run_threads(true)
 	}
 }

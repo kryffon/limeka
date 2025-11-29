@@ -10,13 +10,13 @@
 ## Build instructions
 
 - install [Odin](https://odin-lang.org/docs/install/)
-- `odin build . -vet`
+- `odin build .`
 - To enable `umprof`, build it with `UMPROF` flag
 
-  `odin build . -vet -define:UMPROF=true`
+  `odin build . -define:UMPROF=true`
 
 > NOTE:
 > 1. the executable and `data/` must be in the same dir
 > 2. There are probably bugs not fixed yet.
 > 3. It has memory leaks
-> 4. not tested in windows at all
+> 4. partially tested for windows MSVC only but lib files not included

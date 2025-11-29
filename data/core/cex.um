@@ -187,7 +187,3 @@ fn periodic*(tag: str, wait: real, f: fn()) {
 	}
 }
 
-fn raw_log*(t: str) {
-	printf("[%v] %s\n", system::get_time(), t)
-}
-
