@@ -212,7 +212,6 @@ fn is_prefix_lower(a, b: str): bool {
 
 // NOTE i dont know why but i dont want to write this exactly like they did in lua
 fn path_suggest*(text: str): []str {
-	if text == "" { text = "." }
 	pos := 0
 	for i := len(text)-1; i >= 0; i-- {
 		if text[i] == env::PATHSEP {
@@ -227,12 +226,16 @@ fn path_suggest*(text: str): []str {
 	} else {
 		dir = slice(text, 0, pos)
 	}
-	name := slice(text, pos+1)
-	// INFO list_dir returns only basename
-	fileinfos := system::list_dir(dir)
-	if len(fileinfos) == 0 {
-		return []str{}
+	var name, dirt: str
+	if text == "" {
+		name = text
+		dirt = ""
+	} else {
+		name = slice(text, pos+1)
+		dirt = dir
 	}
+	// INFO list_dir returns only basename
+	fileinfos := system::list_dir(dirt)
 	res := make([]str, 0)
 	for _, fi in fileinfos {
 		file := fi.name

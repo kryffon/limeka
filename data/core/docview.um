@@ -169,6 +169,7 @@ fn (self: ^DocView) get_col_x_offset*(line, col: int): int {
 	if line < 0 || line >= len(self.doc.lines) { return 0 }
 	text := self.doc.lines[line]
 	if len(text) == 0 { return 0 }
+	col = common::iclamp(col, 0, len(text))
 	return renderer::font_get_width(self.get_font(), slice(text, 0, col))
 }
 
@@ -192,7 +193,7 @@ fn (self: ^DocView) get_x_offset_col*(line: int, x: real): int {
 
 fn (self: ^DocView) resolve_screen_position*(x, y: real): (int, int) {
 	ox, oy := self.get_line_screen_position(0)
-	line := floor((y - oy) / self.get_line_height()) + 1
+	line := floor((y - oy) / self.get_line_height())
 	line = common::iclamp(line, 0, len(self.doc.lines)-1)
 	col := self.get_x_offset_col(line, x - ox)
 	return line, col
