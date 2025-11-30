@@ -51,8 +51,8 @@ type (
 		undo_stack: Stack;
 		redo_stack: Stack;
 		clean_change_id: int;
-		highlighter: ^Highlighter;
-		syntax: ^syntax::Syntax;
+		highlighter: weak ^Highlighter;
+		syntax: weak ^syntax::Syntax;
 		filename: str;
 	}
 )
