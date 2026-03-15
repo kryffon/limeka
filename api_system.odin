@@ -5,7 +5,6 @@ import "core:bufio"
 import "core:c/libc"
 import "core:fmt"
 import "core:os"
-import "core:path/filepath"
 import "core:sort"
 import "core:strings"
 import "core:time"
@@ -49,7 +48,7 @@ search_file_find_helper :: proc(
 
 	r: bufio.Reader
 	buffer: [65536]byte
-	bufio.reader_init_with_buf(&r, os.stream_from_handle(f), buffer[:])
+	bufio.reader_init_with_buf(&r, os.to_stream(f), buffer[:])
 	defer bufio.reader_destroy(&r)
 
 	pat_u8 := transmute([]u8)(string(pattern))
@@ -331,7 +330,7 @@ f_set_window_mode :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot)
 
 f_window_has_focus :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	flags := sdl.GetWindowFlags(window)
-	b := cast(bool)(flags & cast(u32)sdl.WINDOW_INPUT_FOCUS)
+	b := sdl.WINDOW_INPUT_FOCUS <= flags
 	res := (^bool)(umka.GetResult(params, result).ptrVal)
 	res^ = b
 }
@@ -377,7 +376,7 @@ Error :: struct {
 f_chdir :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	context = runtime.default_context()
 	path := cstring(umka.GetParam(params, 0).ptrVal)
-	err := os.set_current_directory(string(path))
+	err := os.change_directory(string(path))
 	res := (^bool)(umka.GetResult(params, result).ptrVal)
 	res^ = err != nil
 }
@@ -428,7 +427,7 @@ list_dir_helper :: proc(U: umka.Context, path: cstring, filelist: ^[dynamic]File
 				name = umka.MakeStr(U, name),
 				modified = time.time_to_unix(e.modification_time),
 				size = e.size,
-				is_dir = e.is_dir,
+				is_dir = e.type == .Directory,
 			},
 		)
 	}
@@ -440,14 +439,14 @@ f_absolute_path :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	U := umka.GetInstance(result)
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	path := cstring(umka.GetParam(params, 0).ptrVal)
-	apath, ok := filepath.abs(string(path), context.temp_allocator)
+	apath, err := os.get_absolute_path(string(path), context.temp_allocator)
 	Result :: struct {
 		apath: umka.Str,
 		ok:    bool,
 	}
 	res := (^Result)(umka.GetResult(params, result).ptrVal)
 	res.apath = umka.MakeStr(U, strings.unsafe_string_to_cstring(apath))
-	res.ok = ok
+	res.ok = err == nil
 }
 
 f_get_file_info :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
@@ -472,7 +471,7 @@ f_get_file_info :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 	res.fi.name = umka.MakeStr(U, strings.unsafe_string_to_cstring(fi.name))
 	res.fi.modified = time.time_to_unix(fi.modification_time)
 	res.fi.size = fi.size
-	res.fi.is_dir = fi.is_dir
+	res.fi.is_dir = fi.type == .Directory
 	res.ok = true
 }
 

@@ -167,9 +167,9 @@ ren_load_font :: proc(filename: cstring, size: f32) -> ^RenFont {
 	font.size = size
 
 	/* load font into buffer */
-	data, success := os.read_entire_file_from_filename(string(filename), default_allocator)
-	if !success {
-		fmt.println("Failed to read file from filename", filename)
+	data, err := os.read_entire_file_from_path(string(filename), default_allocator)
+	if err != nil {
+		fmt.printfln("Failed to read file: %q: %v", filename, err)
 		free(font, default_allocator)
 		return nil
 	}

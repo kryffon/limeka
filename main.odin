@@ -7,7 +7,7 @@ import "core:fmt"
 import "core:math"
 import "core:math/bits"
 import "core:mem"
-import "core:os/os2"
+import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
@@ -27,11 +27,11 @@ when ODIN_DEBUG {
 window: ^sdl.Window
 
 get_exe_filename :: proc() -> cstring {
-	info, err := os2.current_process_info(
-		os2.Process_Info_Fields{os2.Process_Info_Field.Executable_Path},
+	info, err := os.current_process_info(
+		os.Process_Info_Fields{os.Process_Info_Field.Executable_Path},
 		context.temp_allocator,
 	)
-	defer os2.free_process_info(info, context.temp_allocator)
+	defer os.free_process_info(info, context.temp_allocator)
 	if err != nil {
 		return "./main"
 	}
@@ -146,11 +146,11 @@ main :: proc() {
 	init_window_icon()
 	ren_init(window)
 
-	argc := i32(len(os2.args))
+	argc := i32(len(os.args))
 	argv := make([]^u8, argc)
 	defer delete(argv)
 	for i in 0 ..< argc {
-		argv[i] = (^u8)(strings.unsafe_string_to_cstring(os2.args[i]))
+		argv[i] = (^u8)(strings.unsafe_string_to_cstring(os.args[i]))
 	}
 
 	if umka_main(argc, argv) {
@@ -206,7 +206,7 @@ umka_main :: proc(argc: i32, argv: []^u8, failsafe: bool = false) -> (comperr: b
 
 add_constants :: proc(U: umka.Context) -> bool {
 	// for now this quick-dirty way is good enough
-	str_scale, found := os2.lookup_env_alloc("LITE_SCALE", context.temp_allocator)
+	str_scale, found := os.lookup_env_alloc("LITE_SCALE", context.temp_allocator)
 	scale: f64
 	if found do scale, found = strconv.parse_f64(str_scale)
 	if !found do scale = get_scale()
