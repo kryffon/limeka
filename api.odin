@@ -42,7 +42,8 @@ source_files := [?]string {
 
 api_add_lite_modules :: proc(U: umka.Context) -> bool {
 	for filename in source_files {
-		source, err := os.read_entire_file_from_path(filename, context.temp_allocator)
+		source, err := os.read_entire_file_from_path(filename, context.allocator)
+		defer delete(source)
 		assert(err == nil, fmt.tprintf("failed to read file: %q: %v", filename, err))
 
 		modname := strings.unsafe_string_to_cstring(filepath.base(filename))
