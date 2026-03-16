@@ -1,7 +1,5 @@
 package main
 
-import "base:runtime"
-
 import "umka"
 
 f_show_debug :: proc "c" (params, result: ^umka.StackSlot) {
@@ -22,12 +20,12 @@ f_get_size :: proc "c" (params, result: ^umka.StackSlot) {
 }
 
 f_begin_frame :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	rencache_begin_frame()
 }
 
 f_end_frame :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	rencache_end_frame()
 }
 
@@ -37,7 +35,7 @@ f_set_clip_rect :: proc "c" (params, result: ^umka.StackSlot) {
 	rect.y = i32(umka.GetParam(params, 1).intVal)
 	rect.width = i32(umka.GetParam(params, 2).intVal)
 	rect.height = i32(umka.GetParam(params, 3).intVal)
-	context = runtime.default_context()
+	context = g_context
 	rencache_set_clip_rect(rect)
 }
 
@@ -51,7 +49,7 @@ color2rencolor :: proc(c: ^Color, def: u8 = 255) -> RenColor {
 }
 
 f_draw_rect :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	rect: RenRect
 	rect.x = i32(umka.GetParam(params, 0).intVal)
 	rect.y = i32(umka.GetParam(params, 1).intVal)
@@ -62,7 +60,7 @@ f_draw_rect :: proc "c" (params, result: ^umka.StackSlot) {
 }
 
 f_draw_text :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	font := fonts[umka.GetParam(params, 0).intVal]
 	text := cstring(umka.GetParam(params, 1).ptrVal)
 	x := umka.GetParam(params, 2).realVal

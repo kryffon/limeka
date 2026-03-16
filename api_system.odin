@@ -21,7 +21,7 @@ Match :: struct {
 }
 
 f_search_file_find :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	U := umka.GetInstance(result)
 
@@ -147,7 +147,7 @@ Event :: struct {
 }
 
 f_poll_event :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	events := make([dynamic]Event, context.temp_allocator)
@@ -341,7 +341,7 @@ f_show_confirm_dialog :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackS
 
 	b: bool
 	when ODIN_OS == .Windows {
-		context = runtime.default_context()
+		context = g_context
 		message := windows.utf8_to_wstring(string(msg))
 		caption := windows.utf8_to_wstring(string(title))
 		id := windows.MessageBoxW(
@@ -374,7 +374,7 @@ Error :: struct {
 }
 
 f_chdir :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	path := cstring(umka.GetParam(params, 0).ptrVal)
 	err := os.change_directory(string(path))
 	res := (^bool)(umka.GetResult(params, result).ptrVal)
@@ -389,7 +389,7 @@ FileInfo :: struct {
 }
 
 f_list_dir :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	// create a separate temp region
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
@@ -435,7 +435,7 @@ list_dir_helper :: proc(U: umka.Context, path: cstring, filelist: ^[dynamic]File
 
 
 f_absolute_path :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	path := cstring(umka.GetParam(params, 0).ptrVal)
@@ -450,7 +450,7 @@ f_absolute_path :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 }
 
 f_get_file_info :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	path := cstring(umka.GetParam(params, 0).ptrVal)
@@ -502,7 +502,7 @@ f_sleep :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
 }
 
 f_exec :: proc "c" (params: ^umka.StackSlot, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	len: libc.size_t
 	cmd := cstring(umka.GetParam(params, 0).ptrVal)
 	buf := make([]u8, len + 32)

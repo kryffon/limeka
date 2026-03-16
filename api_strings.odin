@@ -9,7 +9,7 @@ import "umka"
 // umka module for lua-like(not exact) string matching and string functions
 
 f_lower :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	text := cstring(umka.GetParam(params, 0).ptrVal)
 	lower := strings.to_lower(string(text), context.temp_allocator)
@@ -18,7 +18,7 @@ f_lower :: proc "c" (params, result: ^umka.StackSlot) {
 }
 
 f_upper :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	text := cstring(umka.GetParam(params, 0).ptrVal)
 	upper := strings.to_upper(string(text), context.temp_allocator)
@@ -27,7 +27,7 @@ f_upper :: proc "c" (params, result: ^umka.StackSlot) {
 }
 
 f_find :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	text := cstring(umka.GetParam(params, 0).ptrVal)
 	pattern := cstring(umka.GetParam(params, 1).ptrVal)
@@ -67,7 +67,7 @@ f_find :: proc "c" (params, result: ^umka.StackSlot) {
 }
 
 f_search :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	text := string(cstring(umka.GetParam(params, 0).ptrVal))
 	pattern := cstring(umka.GetParam(params, 1).ptrVal)
 	offset := umka.GetParam(params, 2).intVal
@@ -84,7 +84,7 @@ f_search :: proc "c" (params, result: ^umka.StackSlot) {
 }
 
 f_gsub :: proc "c" (params, result: ^umka.StackSlot) {
-	context = runtime.default_context()
+	context = g_context
 	U := umka.GetInstance(result)
 	text := cstring(umka.GetParam(params, 0).ptrVal)
 	pattern := cstring(umka.GetParam(params, 1).ptrVal)

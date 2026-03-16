@@ -1,7 +1,6 @@
 package main
 
 import "base:runtime"
-import "core:c/libc"
 import "core:dynlib"
 import "core:fmt"
 import "core:math"
@@ -19,10 +18,7 @@ import sdl "vendor:sdl2"
 _ :: mem
 _ :: dynlib
 
-// global tracking allocator to be used in atexit handler
-when ODIN_DEBUG {
-	track: mem.Tracking_Allocator
-}
+g_context: runtime.Context
 
 window: ^sdl.Window
 
@@ -75,26 +71,6 @@ red :: #force_inline proc($s: string) -> string {
 	return ansi.CSI + ansi.FG_BRIGHT_RED + ansi.SGR + s + ansi.CSI + ansi.RESET + ansi.SGR
 }
 
-run_at_exit :: proc "c" () {
-	context = runtime.default_context()
-
-	when ODIN_DEBUG {
-		if len(track.allocation_map) > 0 {
-			fmt.eprintf(red("=== %v allocations not freed: ===\n"), len(track.allocation_map))
-			for _, entry in track.allocation_map {
-				fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-			}
-		}
-		if len(track.bad_free_array) > 0 {
-			fmt.eprintf(red("=== %v incorrect frees: ===\n"), len(track.bad_free_array))
-			for entry in track.bad_free_array {
-				fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
-			}
-		}
-		mem.tracking_allocator_destroy(&track)
-	}
-}
-
 main :: proc() {
 	when ODIN_OS == .Windows {
 		lib, ok := dynlib.load_library("user32.dll")
@@ -111,16 +87,26 @@ main :: proc() {
 
 	fmt.println(blue("is ODIN_DEBUG: "), ODIN_DEBUG)
 	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
 		context.allocator = mem.tracking_allocator(&track)
-		// no defer, lua just exits the app
+
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
 	}
+	g_context = context
 
 	if sdl.Init(sdl.INIT_VIDEO) != 0 {
 		fmt.println("Unable to get SDL_GetCurrentDisplayMode: %s\n", sdl.GetError())
 		return
 	}
-	libc.atexit(run_at_exit)
 
 	sdl.EnableScreenSaver()
 	// ret value can be ignored as it just returns the previous state
@@ -145,6 +131,7 @@ main :: proc() {
 
 	init_window_icon()
 	ren_init(window)
+	defer ren_close()
 
 	argc := i32(len(os.args))
 	argv := make([]^u8, argc)

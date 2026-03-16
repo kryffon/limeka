@@ -55,6 +55,11 @@ ren_init :: proc(win: ^sdl.Window) {
 	default_allocator = context.allocator
 }
 
+ren_close :: proc() {
+	delete(fonts)
+	delete(loaded_fonts)
+}
+
 ren_update_rects :: proc "contextless" (rects: [^]RenRect, count: i32) {
 	sdl.UpdateWindowSurfaceRects(window, cast([^]sdl.Rect)rects, count)
 	initial_frame = true

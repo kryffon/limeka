@@ -1,5 +1,7 @@
 # limeka editor
 
+![screenshot](./assets/screenshot.png)
+
 - this is a port of a port([Waqar144/lite-odin](https://github.com/Waqar144/lite-odin)) of [rxi/lite](https://github.com/rxi/lite)
 - It uses [`umka`](https://github.com/vtereshkov/umka-lang) instead of Lua
 - most of the odin code is exact copy from `lite-odin`
@@ -17,6 +19,4 @@
 
 > NOTE:
 > 1. the executable and `data/` must be in the same dir
-> 2. There are probably bugs not fixed yet.
-> 3. It has memory leaks
-> 4. partially tested for windows MSVC only but lib files not included
+> 2. `SDL2.dll` must be in same dir as the executable
