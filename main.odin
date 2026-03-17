@@ -81,7 +81,7 @@ main :: proc() {
 		if !found {
 			fmt.eprintln(dynlib.last_error())
 		} else {
-			(cast(proc() -> libc.int)SetProcessDPIAware)()
+			(cast(proc() -> i32)SetProcessDPIAware)()
 		}
 	}
 
